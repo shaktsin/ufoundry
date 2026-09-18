@@ -7,7 +7,7 @@ Tools exposed:
   echo       — returns {"type": "text", "text": <message>}
   error_tool — returns a JSON-RPC error (tests MCPError handling)
 
-Run by MCPRegistry as a subprocess.  Do NOT import umabot here.
+Run by MCPRegistry as a subprocess.  Do NOT import ufoundry here.
 """
 
 import json

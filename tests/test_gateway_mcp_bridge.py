@@ -4,8 +4,8 @@ import base64
 
 import pytest
 
-from umabot.gateway import _mcp_content_to_tool_result, _register_mcp_tools
-from umabot.tools import ToolRegistry, UnifiedToolRegistry
+from ufoundry.gateway import _mcp_content_to_tool_result, _register_mcp_tools
+from ufoundry.tools import ToolRegistry, UnifiedToolRegistry
 
 
 def test_mcp_content_to_tool_result_includes_image_attachment() -> None:

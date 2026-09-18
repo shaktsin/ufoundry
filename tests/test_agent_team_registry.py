@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from umabot.agents.team_registry import TeamRegistry
-from umabot.skills.registry import SkillRegistry
-from umabot.storage.db import Database
-from umabot.tools.registry import Tool, ToolRegistry, ToolResult
+from ufoundry.agents.team_registry import TeamRegistry
+from ufoundry.skills.registry import SkillRegistry
+from ufoundry.storage.db import Database
+from ufoundry.tools.registry import Tool, ToolRegistry, ToolResult
 
 
 async def _noop_tool(_args):
@@ -101,7 +101,7 @@ members:
 
 
 def test_team_registry_selects_matching_team_with_skill_enforced_tools(tmp_path: Path) -> None:
-    db = Database(str(tmp_path / "umabot.db"))
+    db = Database(str(tmp_path / "ufoundry.db"))
 
     skills_root = tmp_path / "skills"
     _write_skill(skills_root)
@@ -134,7 +134,7 @@ def test_team_registry_selects_matching_team_with_skill_enforced_tools(tmp_path:
 
 
 def test_fit_check_rejects_simple_short_tasks(tmp_path: Path) -> None:
-    db = Database(str(tmp_path / "umabot.db"))
+    db = Database(str(tmp_path / "ufoundry.db"))
     registry = TeamRegistry(
         db=db,
         tool_registry=_build_tool_registry(),
@@ -150,7 +150,7 @@ def test_fit_check_rejects_simple_short_tasks(tmp_path: Path) -> None:
 
 
 def test_team_runtime_capability_wildcards_resolve_to_tool_pool(tmp_path: Path) -> None:
-    db = Database(str(tmp_path / "umabot.db"))
+    db = Database(str(tmp_path / "ufoundry.db"))
     registry = TeamRegistry(
         db=db,
         tool_registry=_build_tool_registry(),
@@ -198,7 +198,7 @@ def test_team_runtime_capability_wildcards_resolve_to_tool_pool(tmp_path: Path) 
 
 
 def test_team_runtime_capability_preflight_reports_missing_patterns(tmp_path: Path) -> None:
-    db = Database(str(tmp_path / "umabot.db"))
+    db = Database(str(tmp_path / "ufoundry.db"))
     registry = TeamRegistry(
         db=db,
         tool_registry=_build_tool_registry(),

@@ -1,13 +1,13 @@
-# UmaBot Skill Template
+# UFoundry Skill Template
 
-This is a template for creating UmaBot skills. It demonstrates both Python and Bash scripts with proper input/output handling.
+This is a template for creating UFoundry skills. It demonstrates both Python and Bash scripts with proper input/output handling.
 
 ## Quick Start
 
 ### 1. Clone this template
 
 ```bash
-git clone https://github.com/yourusername/umabot-skill-example.git my-skill
+git clone https://github.com/yourusername/ufoundry-skill-example.git my-skill
 cd my-skill
 ```
 
@@ -22,10 +22,10 @@ cd my-skill
 
 ```bash
 # Install in development mode
-umabot skills install .
+ufoundry skills install .
 
 # Test your skill
-umabot reload
+ufoundry reload
 # Then chat with your bot and trigger the skill
 ```
 
@@ -207,7 +207,7 @@ Access these in your scripts:
 - [ ] requirements.txt includes all dependencies
 - [ ] pyproject.toml has correct metadata
 - [ ] README.md is complete
-- [ ] Tested locally with `umabot skills install .`
+- [ ] Tested locally with `ufoundry skills install .`
 - [ ] Version follows semver
 - [ ] License specified (MIT, Apache, etc.)
 

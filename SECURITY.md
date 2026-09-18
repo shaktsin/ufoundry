@@ -33,7 +33,7 @@ Please report security issues privately via:
 
 ### 🔒 Defense in Depth
 
-UmaBot implements multiple security layers:
+UFoundry implements multiple security layers:
 
 1. **Risk-Based Tool Approval**
    - 🟢 GREEN: Auto-approved (read-only)
@@ -48,7 +48,7 @@ UmaBot implements multiple security layers:
 
 3. **Secret Management**
    - macOS Keychain integration (automatic)
-   - `~/.umabot/.env` fallback (0600 permissions)
+   - `~/.ufoundry/.env` fallback (0600 permissions)
    - Environment variable support
    - **Never stored in config.yaml**
 
@@ -83,7 +83,7 @@ UmaBot implements multiple security layers:
 **✅ DO:**
 - Use environment variables for secrets in production
 - Review skill tool allowlists before installation
-- Keep UmaBot updated (`git pull && make upgrade`)
+- Keep UFoundry updated (`git pull && make upgrade`)
 - Monitor logs for suspicious activity
 - Rotate API keys every 90 days
 - Use separate Telegram bot for control panel
@@ -93,30 +93,30 @@ UmaBot implements multiple security layers:
 - Share your control panel chat ID
 - Enable shell tool unless necessary
 - Grant broad tool allowlists to untrusted skills
-- Run UmaBot as root
+- Run UFoundry as root
 
 ### Environment Variables
 
 ```bash
 # LLM Provider
-export UMABOT_LLM_API_KEY="sk-..."
+export UFOUNDRY_LLM_API_KEY="sk-..."
 
-# Connector Tokens (format: UMABOT_CONNECTOR_<NAME>_TOKEN)
-export UMABOT_CONNECTOR_CONTROL_PANEL_BOT_TOKEN="123:ABC..."
-export UMABOT_CONNECTOR_PUBLIC_TELEGRAM_TOKEN="456:DEF..."
+# Connector Tokens (format: UFOUNDRY_CONNECTOR_<NAME>_TOKEN)
+export UFOUNDRY_CONNECTOR_CONTROL_PANEL_BOT_TOKEN="123:ABC..."
+export UFOUNDRY_CONNECTOR_PUBLIC_TELEGRAM_TOKEN="456:DEF..."
 
 # WebSocket Authentication
-export UMABOT_WS_TOKEN="<generated-during-init>"
+export UFOUNDRY_WS_TOKEN="<generated-during-init>"
 ```
 
 ### File Permissions
 
 ```bash
 # Secure config directory
-chmod 700 ~/.umabot
-chmod 600 ~/.umabot/config.yaml
-chmod 600 ~/.umabot/.env
-chmod 600 ~/.umabot/umabot.db
+chmod 700 ~/.ufoundry
+chmod 600 ~/.ufoundry/config.yaml
+chmod 600 ~/.ufoundry/.env
+chmod 600 ~/.ufoundry/ufoundry.db
 ```
 
 ### For Skill Developers
@@ -174,7 +174,7 @@ except (json.JSONDecodeError, AssertionError) as e:
 
 ### OWASP Top 10 (2021)
 
-| Risk | UmaBot Mitigation |
+| Risk | UFoundry Mitigation |
 |------|-------------------|
 | A01 Broken Access Control | ✅ Control panel isolation, risk tiers |
 | A02 Cryptographic Failures | ✅ Keychain/env secrets, no plaintext |

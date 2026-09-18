@@ -57,7 +57,7 @@ runtime:
 
 # Example Skill
 
-This is an example skill template for UmaBot. It demonstrates:
+This is an example skill template for UFoundry. It demonstrates:
 
 - Python scripts
 - Bash scripts
@@ -69,13 +69,13 @@ This is an example skill template for UmaBot. It demonstrates:
 
 ```bash
 # Install from local path
-umabot skills install /path/to/this/skill
+ufoundry skills install /path/to/this/skill
 
 # Or from GitHub
-umabot skills install https://github.com/yourusername/umabot-skill-example.git
+ufoundry skills install https://github.com/yourusername/ufoundry-skill-example.git
 
 # Or publish to PyPI and install
-umabot skills install umabot-skill-example
+ufoundry skills install ufoundry-skill-example
 ```
 
 ## Scripts

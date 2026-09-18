@@ -1,4 +1,4 @@
-# UmaBot Architecture
+# UFoundry Architecture
 
 Reference for contributors and advanced users. Covers internals, message flow, tool routing, deployment, and extension points.
 
@@ -261,7 +261,7 @@ At startup and on `make reload`:
 
 ## LLM Scheduler
 
-All LLM calls go through `LLMScheduler` (`umabot/llm/scheduler.py`), which wraps any provider client with a priority queue and rate limiter.
+All LLM calls go through `LLMScheduler` (`ufoundry/llm/scheduler.py`), which wraps any provider client with a priority queue and rate limiter.
 
 ```
 Priority levels:
@@ -343,16 +343,16 @@ Messages are JSON frames:
 
 ```bash
 # Telegram bot connector
-.venv/bin/umabot channels telegram --mode channel
+.venv/bin/ufoundry channels telegram --mode channel
 
 # Telegram as control panel
-.venv/bin/umabot channels telegram --mode control
+.venv/bin/ufoundry channels telegram --mode control
 
 # Telegram user account (MTProto — reads all personal chats)
-.venv/bin/umabot channels telegram-user --connector my_account
+.venv/bin/ufoundry channels telegram-user --connector my_account
 
 # First-time login (interactive phone/OTP flow)
-.venv/bin/umabot channels telegram-user --connector my_account --login
+.venv/bin/ufoundry channels telegram-user --connector my_account --login
 ```
 
 Set `connectors[].allow_login: true` in config for the first run when using `make start`.
@@ -365,15 +365,15 @@ Set `connectors[].allow_login: true` in config for the first run when using `mak
 
 ```ini
 [Unit]
-Description=UmaBot
+Description=UFoundry
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/umabot
-ExecStart=/opt/umabot/.venv/bin/umabot start
-ExecStop=/opt/umabot/.venv/bin/umabot stop
-ExecReload=/opt/umabot/.venv/bin/umabot reload
+WorkingDirectory=/opt/ufoundry
+ExecStart=/opt/ufoundry/.venv/bin/ufoundry start
+ExecStop=/opt/ufoundry/.venv/bin/ufoundry stop
+ExecReload=/opt/ufoundry/.venv/bin/ufoundry reload
 Restart=on-failure
 
 [Install]
@@ -388,10 +388,10 @@ WantedBy=multi-user.target
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key>        <string>com.umabot.daemon</string>
+  <key>Label</key>        <string>com.ufoundry.daemon</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/umabot/.venv/bin/umabot</string>
+    <string>/opt/ufoundry/.venv/bin/ufoundry</string>
     <string>start</string>
   </array>
   <key>RunAtLoad</key>    <true/>

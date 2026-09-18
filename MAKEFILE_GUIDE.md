@@ -3,7 +3,7 @@
 ## 📍 Configuration
 
 The Makefile uses these defaults (configurable at top of Makefile):
-- **Config File**: `~/.umabot/config.yaml`
+- **Config File**: `~/.ufoundry/config.yaml`
 - **Log Level**: `DEBUG` (change `LOG_LEVEL` variable in Makefile)
 - **Virtual Env**: `.venv` in project directory
 
@@ -11,7 +11,7 @@ The Makefile uses these defaults (configurable at top of Makefile):
 
 ```bash
 make install          # First-time installation (creates .venv)
-make init             # Configure UmaBot with control panel (saves to ~/.umabot/config.yaml)
+make init             # Configure UFoundry with control panel (saves to ~/.ufoundry/config.yaml)
 make run              # Run in foreground with DEBUG logging
 ```
 
@@ -26,7 +26,7 @@ make quick-start      # Does install + init + start
 
 | Command | Description |
 |---------|-------------|
-| `make install` | Create venv and install UmaBot |
+| `make install` | Create venv and install UFoundry |
 | `make dev-install` | Install with dev dependencies |
 | `make upgrade` | Upgrade all dependencies |
 
@@ -39,7 +39,7 @@ make quick-start      # Does install + init + start
 | `make config-show` | Display current config |
 | `make config-edit` | Edit config in editor |
 
-## 🎮 Running UmaBot
+## 🎮 Running UFoundry
 
 | Command | Description |
 |---------|-------------|
@@ -71,7 +71,7 @@ make quick-start      # Does install + init + start
 |---------|-------------|
 | `make logs` | Watch logs in real-time (`tail -f`) |
 | `make status` | Show if daemon is running |
-| `make ps` | Show all UmaBot processes |
+| `make ps` | Show all UFoundry processes |
 | `make info` | Show system information |
 
 ## 🛠️ Skills Management
@@ -79,7 +79,7 @@ make quick-start      # Does install + init + start
 | Command | Example | Description |
 |---------|---------|-------------|
 | `make skills-list` | | List installed skills |
-| `make skills-install SKILL=X` | `make skills-install SKILL=umabot-skill-github` | Install from PyPI |
+| `make skills-install SKILL=X` | `make skills-install SKILL=ufoundry-skill-github` | Install from PyPI |
 | | `make skills-install SKILL=https://github.com/user/skill.git` | Install from GitHub |
 | | `make skills-install SKILL=./my-skill` | Install from local path |
 | `make skills-remove SKILL=X` | `make skills-remove SKILL=github` | Remove skill |
@@ -108,7 +108,7 @@ make quick-start      # Does install + init + start
 | `make lint` | Run linters (flake8, mypy) |
 | `make format` | Format code with black |
 | `make check` | Run lint + test |
-| `make shell` | Open Python shell with UmaBot loaded |
+| `make shell` | Open Python shell with UFoundry loaded |
 
 ## 📦 Build & Publish
 
@@ -145,7 +145,7 @@ make status           # Verify running
 
 ### Installing Skills
 ```bash
-make skills-install SKILL=umabot-skill-github
+make skills-install SKILL=ufoundry-skill-github
 make reload           # Reload to activate
 make skills-list      # Verify installed
 ```
@@ -202,8 +202,8 @@ make doctor        # Run diagnostics
 
 ### Complete Fresh Install
 ```bash
-git clone https://github.com/yourusername/umabot.git
-cd umabot
+git clone https://github.com/yourusername/ufoundry.git
+cd ufoundry
 make quick-start   # Does everything!
 ```
 

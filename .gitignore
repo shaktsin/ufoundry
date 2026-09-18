@@ -206,7 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# UMA BOT local/runtime secrets and state
+# UFoundry local/runtime secrets and state
 config.yaml
 *.session
 wa_session/
