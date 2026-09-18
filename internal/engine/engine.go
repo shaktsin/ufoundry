@@ -18,11 +18,14 @@ import (
 	"github.com/shaktsin/ufoundry/internal/config"
 	"github.com/shaktsin/ufoundry/internal/credentials"
 	"github.com/shaktsin/ufoundry/internal/llm"
+	"github.com/shaktsin/ufoundry/internal/mcp"
 	"github.com/shaktsin/ufoundry/internal/models"
 	"github.com/shaktsin/ufoundry/internal/policy"
 	"github.com/shaktsin/ufoundry/internal/protocol"
 	"github.com/shaktsin/ufoundry/internal/secrets"
+	"github.com/shaktsin/ufoundry/internal/skills"
 	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/ufoundry/internal/tasks"
 	"github.com/shaktsin/ufoundry/internal/tools"
 	"github.com/shaktsin/ufoundry/internal/version"
 )
@@ -35,6 +38,9 @@ type Engine struct {
 	Catalog *models.Catalog
 	Creds   *credentials.Service
 	Tools   *tools.Registry
+	Skills  *skills.Registry
+	MCP     *mcp.Manager
+	Tasks   *tasks.Service
 	Bus     *Bus
 	Log     *slog.Logger
 
@@ -50,6 +56,7 @@ type Engine struct {
 	budgetWarned map[string]string      // credential id -> month already warned
 	presets      map[protocol.Complexity]protocol.ComplexityPreset
 	defaultCplx  protocol.Complexity
+	turnWaiters  map[string]chan protocol.Turn // turn id -> completion (task runs)
 	wg           sync.WaitGroup
 }
 
@@ -67,6 +74,12 @@ type Options struct {
 	Logger  *slog.Logger
 	// Legacy finds API keys saved by the Python app (Keychain, .env); optional.
 	Legacy credentials.LegacyLookup
+	// DisableScheduler turns off scheduled task runs (tests, secondary engines).
+	DisableScheduler bool
+	// DisableMCP skips starting MCP servers.
+	DisableMCP bool
+	// SchedulerPoll overrides how often due tasks are checked (default 5s).
+	SchedulerPoll time.Duration
 }
 
 // New builds an engine and runs startup housekeeping.
@@ -83,16 +96,27 @@ func New(ctx context.Context, o Options) (*Engine, error) {
 	}
 	ws := tools.NewWorkspaces(o.Config)
 	reg := tools.NewRegistry()
-	tools.RegisterBuiltins(reg, o.Config, ws)
+	sk := skills.NewRegistry(o.Config)
+	tools.RegisterBuiltins(reg, o.Config, ws, sk.EnvFor)
+	sk.Register(reg)
+
+	mcpm := mcp.NewManager(o.Config.MCPServers, o.Logger)
+	reg.AddSource(mcpm)
 
 	base, cancel := context.WithCancel(context.Background())
 	e := &Engine{
 		Cfg: o.Config, Store: o.Store, LLMs: o.LLMs, Catalog: cat,
-		Creds: credentials.New(o.Store, o.Secrets, o.LLMs), Tools: reg, Bus: NewBus(), Log: o.Logger,
+		Creds: credentials.New(o.Store, o.Secrets, o.LLMs), Tools: reg, Skills: sk, MCP: mcpm,
+		Bus: NewBus(), Log: o.Logger,
 		gate: policy.New(o.Config.Policy), started: time.Now(), baseCtx: base, cancelAll: cancel,
 		activeTurns: map[string]*activeTurn{}, threadTurns: map[string]string{},
 		approvals: map[string]chan bool{}, budgetWarned: map[string]string{},
+		turnWaiters: map[string]chan protocol.Turn{},
 	}
+	e.Tasks = tasks.NewService(o.Store, o.Logger, e.runTask, func(t protocol.Task) {
+		e.Bus.PublishAdmin(protocol.NotifyTaskUpdated, protocol.TaskEvent{Task: t})
+	})
+	e.Tasks.Register(reg)
 	if err := e.loadComplexity(ctx); err != nil {
 		return nil, err
 	}
@@ -112,6 +136,17 @@ func New(ctx context.Context, o Options) (*Engine, error) {
 				"provider", c.Provider, "credential", c.ID)
 		}
 	}
+	if !o.DisableMCP {
+		if err := mcpm.Start(false); err != nil {
+			return nil, err
+		}
+	}
+	if o.SchedulerPoll > 0 {
+		e.Tasks.Poll = o.SchedulerPoll
+	}
+	if !o.DisableScheduler {
+		e.Tasks.Start(base)
+	}
 	return e, nil
 }
 
@@ -119,7 +154,12 @@ func New(ctx context.Context, o Options) (*Engine, error) {
 func (e *Engine) Shutdown(ctx context.Context) {
 	e.cancelAll()
 	done := make(chan struct{})
-	go func() { e.wg.Wait(); close(done) }()
+	go func() {
+		e.wg.Wait()
+		e.Tasks.Wait()
+		e.MCP.Close()
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-ctx.Done():
@@ -453,13 +493,20 @@ func validateSelection(s protocol.ModelSelection) error {
 	return nil
 }
 
-// systemPrompt builds the system prompt from the built-in instructions and AGENT.md.
-func (e *Engine) systemPrompt() string {
+// systemPrompt builds the system prompt from the built-in instructions, the
+// skills catalog and AGENT.md. userText is used to point at a matching skill.
+func (e *Engine) systemPrompt(userText string) string {
 	var b strings.Builder
 	b.WriteString("You are UFoundry, a personal AI assistant running on the user's own computer. ")
 	b.WriteString("Be direct and concise. Use tools when they help; never invent tool results. ")
 	b.WriteString("Risky actions (shell commands, writing files) may require the user's approval; if an action is denied, explain and suggest an alternative.\n")
-	b.WriteString(fmt.Sprintf("Current time: %s.\n", time.Now().Format(time.RFC1123)))
+	b.WriteString(fmt.Sprintf("Current time: %s (%s).\n", time.Now().Format(time.RFC1123), tasks.ZoneName(time.Local)))
+	if cat := e.Skills.Catalog(); cat != "" {
+		b.WriteString("\n" + cat)
+		if sk, ok := e.Skills.Match(userText); ok && userText != "" {
+			b.WriteString(fmt.Sprintf("The current request may match the %q skill; read its instructions before acting.\n", sk.Name))
+		}
+	}
 	ctxFile := e.Cfg.Agents.ContextFile
 	if ctxFile == "" {
 		ctxFile = filepath.Join(e.Cfg.Home, "AGENT.md")

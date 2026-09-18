@@ -119,7 +119,8 @@ func newHarness(t *testing.T, mutate func(*config.Config)) *harness {
 	reg := llm.NewRegistry()
 	reg.Register(fake)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	eng, err := engine.New(ctx, engine.Options{Config: cfg, Store: st, Secrets: secrets.NewMemoryStore(), LLMs: reg, Logger: log})
+	eng, err := engine.New(ctx, engine.Options{Config: cfg, Store: st, Secrets: secrets.NewMemoryStore(), LLMs: reg, Logger: log,
+		SchedulerPoll: 50 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,5 +486,131 @@ func TestWebSocketTransport(t *testing.T) {
 	m := send(4, "engine/status", nil)
 	if res, _ := m["result"].(map[string]any); res == nil || res["protocolVersion"] != protocol.Version {
 		t.Fatalf("status = %v", m)
+	}
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func TestScheduledTasks(t *testing.T) {
+	h := newHarness(t, nil)
+	h.addKey("claude", "k", "sk-1")
+	h.fake.push(textReply("Inbox: 3 new emails."))
+	var task protocol.Task
+	min := 7
+	h.call(protocol.MethodTaskCreate, protocol.TaskCreateParams{Name: "inbox", Prompt: "summarise my inbox",
+		TaskType: protocol.TaskPeriodic, Schedule: protocol.Schedule{Frequency: "hourly", Minute: &min}, Timezone: "UTC",
+		Settings: protocol.ModelSelection{Complexity: protocol.ComplexityQuick}}, &task)
+	if task.NextRunAt == nil || task.NextRunAt.Minute() != 7 || task.Status != "active" {
+		t.Fatalf("task = %+v", task)
+	}
+	h.call(protocol.MethodTaskRunNow, protocol.TaskIDParams{TaskID: task.ID}, nil)
+	var runs protocol.TaskRunsResult
+	waitFor(t, "task run", func() bool {
+		h.call(protocol.MethodTaskRuns, protocol.TaskIDParams{TaskID: task.ID}, &runs)
+		return len(runs.Runs) == 1 && runs.Runs[0].Status != "running"
+	})
+	run := runs.Runs[0]
+	if run.Status != "success" || run.Result != "Inbox: 3 new emails." || run.TurnID == "" {
+		t.Fatalf("run = %+v", run)
+	}
+	var list protocol.TaskListResult
+	h.call(protocol.MethodTaskList, protocol.TaskListParams{}, &list)
+	got := list.Tasks[0]
+	if got.Status != "active" || got.NextRunAt == nil || !got.NextRunAt.After(time.Now()) || got.ThreadID == "" || got.LastResult != run.Result {
+		t.Fatalf("after run = %+v", got)
+	}
+	var read protocol.ThreadReadResult
+	h.call(protocol.MethodThreadRead, protocol.ThreadIDParams{ThreadID: got.ThreadID}, &read)
+	if read.Thread.Title != "Task: inbox" || read.Thread.Channel != "task" || read.Turns[0].Resolved.Complexity != "quick" {
+		t.Fatalf("task thread = %+v turns=%+v", read.Thread, read.Turns)
+	}
+
+	// One-time task completes after its run.
+	h.fake.push(textReply("done"))
+	var once protocol.Task
+	h.call(protocol.MethodTaskCreate, protocol.TaskCreateParams{Prompt: "remind me", TaskType: protocol.TaskOneTime,
+		Schedule: protocol.Schedule{RunAt: time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)}}, &once)
+	h.call(protocol.MethodTaskRunNow, protocol.TaskIDParams{TaskID: once.ID}, nil)
+	waitFor(t, "one-time completion", func() bool {
+		h.call(protocol.MethodTaskList, protocol.TaskListParams{Status: "completed"}, &list)
+		return len(list.Tasks) == 1 && list.Tasks[0].ID == once.ID
+	})
+	if err := h.c.Call(h.ctx, protocol.MethodTaskCreate, protocol.TaskCreateParams{Prompt: "x", TaskType: protocol.TaskOneTime,
+		Schedule: protocol.Schedule{RunAt: "2020-01-01T00:00"}}, nil); err == nil {
+		t.Fatal("past one-time task accepted")
+	}
+	h.call(protocol.MethodTaskCancel, protocol.TaskIDParams{TaskID: task.ID}, &task)
+	if task.Status != "cancelled" {
+		t.Fatalf("cancel = %+v", task)
+	}
+}
+
+func TestAgentUsesSkillAndCreatesTask(t *testing.T) {
+	h := newHarness(t, nil)
+	h.addKey("claude", "k", "sk-1")
+	home := filepath.Dir(h.eng.Cfg.Runtime.SocketPath)
+	dir := filepath.Join(home, "skills", "greeter")
+	os.MkdirAll(filepath.Join(dir, "scripts"), 0o755)
+	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: greeter\ndescription: Greet people by name\nrisk_level: green\nscripts:\n  greet:\n    path: scripts/greet.sh\n    description: greet\n---\nCall greet.\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "scripts", "greet.sh"), []byte("#!/bin/bash\nread -r j\necho \"hello from skill $j\"\n"), 0o755)
+
+	h.fake.push(
+		toolReply("skill__run_script", `{"skill":"greeter","script":"greet","args":{"name":"Ada"}}`),
+		toolReply("task__create", `{"name":"standup","prompt":"post standup notes","task_type":"periodic","frequency":"weekly","day_of_week":"mon","time":"09:30","timezone":"Europe/Berlin"}`),
+		textReply("Greeted Ada and scheduled standup."),
+	)
+	var th protocol.Thread
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{Title: "x"}, &th)
+	var res protocol.TurnStartResult
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "please greet Ada by name and schedule standup"}, &res)
+	turn, _, tools := h.waitTurn(res.Turn.ID, nil)
+	if turn.Status != protocol.TurnCompleted || len(tools) != 2 {
+		t.Fatalf("turn=%+v tools=%+v", turn, tools)
+	}
+	if tools[0].Tool.Name != "skill.run_script" || !strings.Contains(tools[0].Tool.Output, `hello from skill {"config":{},"input":{"name":"Ada"}}`) {
+		t.Fatalf("skill tool = %+v", tools[0].Tool)
+	}
+	if tools[1].Tool.Name != "task.create" || tools[1].Status != protocol.ItemCompleted {
+		t.Fatalf("task tool = %+v", tools[1])
+	}
+	h.fake.mu.Lock()
+	sys := h.fake.calls[0].System
+	h.fake.mu.Unlock()
+	if !strings.Contains(sys, "greeter: Greet people by name") || !strings.Contains(sys, `may match the "greeter" skill`) {
+		t.Fatalf("system prompt lacks skills: %s", sys)
+	}
+	var list protocol.TaskListResult
+	h.call(protocol.MethodTaskList, protocol.TaskListParams{}, &list)
+	if len(list.Tasks) != 1 || list.Tasks[0].Timezone != "Europe/Berlin" || list.Tasks[0].CreatedBy != "agent" {
+		t.Fatalf("tasks = %+v", list.Tasks)
+	}
+	var tl protocol.ToolListResult
+	h.call(protocol.MethodToolList, nil, &tl)
+	names := map[string]string{}
+	for _, x := range tl.Tools {
+		names[x.Name] = x.Source
+	}
+	if names["skill.run_script"] != "skill" || names["task.create"] != "task" || names["shell.run"] != "builtin" {
+		t.Fatalf("tools = %v", names)
+	}
+	var sl protocol.SkillListResult
+	h.call(protocol.MethodSkillList, nil, &sl)
+	if len(sl.Skills) != 1 || !sl.Skills[0].Removable || sl.Skills[0].Scripts[0] != "greet" {
+		t.Fatalf("skills = %+v", sl)
+	}
+	var ml protocol.MCPListResult
+	h.call(protocol.MethodMCPList, nil, &ml)
+	if len(ml.Servers) != 0 {
+		t.Fatalf("mcp = %+v", ml)
 	}
 }

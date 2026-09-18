@@ -40,7 +40,7 @@ func TestShellRunAndRisk(t *testing.T) {
 	cfg.Policy.AutoApproveShellCommands = []string{"ls", "git status"}
 	t.Setenv("OPENAI_API_KEY", "must-not-leak")
 	r := NewRegistry()
-	RegisterBuiltins(r, cfg, NewWorkspaces(cfg))
+	RegisterBuiltins(r, cfg, NewWorkspaces(cfg), nil)
 	sh, ok := r.Get("shell__run")
 	if !ok {
 		t.Fatal("shell.run not registered")

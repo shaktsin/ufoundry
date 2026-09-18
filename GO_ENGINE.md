@@ -2,7 +2,7 @@
 
 The Go engine is the new core of UFoundry: one binary (`ufoundry`) that is both the always-on engine and the CLI. The Mac app and other clients talk to it through the engine protocol described below. It runs alongside the Python app during the migration and shares its `~/.ufoundry` folder and SQLite database.
 
-Status: milestones M0–M2 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407), plus the engine side of M5 (chats, models, complexity, API keys and usage). Connectors, skills, MCP, tasks and agent teams are still served by the Python app.
+Status: milestones M0–M3 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407) (engine, agent loop, skills, MCP, scheduled tasks), plus the engine side of M5 (chats, models, complexity, API keys and usage). Connectors (Telegram, Gmail, Discord), Google Workspace tools and agent teams are still served by the Python app.
 
 ## Quick start
 
@@ -30,6 +30,10 @@ API keys go to the macOS Keychain (service `com.ufoundry`); on Linux they are ke
 | `complexity [show] / default LEVEL` | Complexity presets and the default level. |
 | `usage [--by credential\|model\|thread\|role\|day] [--days N] [--key ID]` | Tokens and cost. |
 | `approvals / approve ID / deny ID` | Answer approvals from another terminal. |
+| `task list [--all] / add / cancel ID / run ID / runs ID` | Scheduled tasks. `add` takes `--at 2026-09-20T09:00`, `--daily 09:00`, `--weekly mon@09:00`, `--hourly 15` or `--cron "0 9 * * mon-fri"`, plus `--tz`, `-p/-m/-c`. |
+| `skill list / show NAME / install PATH_OR_GIT_URL / remove NAME` | Skills in `./skills`, `~/.ufoundry/skills` and `skill_dirs`. |
+| `mcp [list] / mcp restart NAME` | MCP servers from `mcp_servers` and their status. |
+| `tools` | Every tool the agent can call, with its source. |
 | `status`, `service install\|uninstall\|status`, `version` | Engine management. |
 
 ## Model selection and complexity
@@ -50,6 +54,14 @@ The key is the requested one, else the provider's default key, else its oldest e
 | auto (default) | picks quick / standard / deep per message with a local heuristic; the turn records what it picked | | |
 
 Reasoning maps to Claude adaptive thinking + `output_config.effort` (or a thinking budget for Haiku 4.5), OpenAI `reasoning_effort`, and Gemini `thinkingLevel` (or `thinkingBudget` for 2.5). Models without reasoning ignore it.
+
+## Skills, MCP and scheduled tasks
+
+**Skills** use the same `SKILL.md` format as the Python app and are found in `./skills`, `~/.ufoundry/skills` and any `skill_dirs`. The system prompt lists each skill's name and description; the agent reads full instructions with `skill.get_instructions` and runs declared scripts with `skill.run_script`, or passes `skill: <name>` to `shell.run` to use the skill's environment. Scripts get `{"input": <args>, "config": <skills.<name>.config>}` on stdin (the `skill-template` contract), run in the skill folder with its `.venv` (created with `uv` when available, reusing venvs the Python app made), `extra_path`, `env` and `SKILL_DIR`, and never inherit the engine's own API keys. `risk_level` in `SKILL.md` (default yellow) decides approvals.
+
+**MCP servers** from `mcp_servers` (stdio or Streamable HTTP, same keys as the Python app) start in the background; their tools appear as `mcp_<server>_<tool>`. Risk comes from the server's `risk_level` if set, otherwise from the tool's annotations: read-only is green, destructive is red, anything else yellow. A server that exits is restarted on the next call.
+
+**Scheduled tasks** share the `tasks` table with the Python app. Each run becomes a turn in the task's own thread (so you can read its history and cost), with the task's provider/model/complexity. Approvals work as in chat. The agent can create, list and cancel tasks itself (`task.create`, `task.list`, `task.cancel`). Differences from the Python app: cron schedules are new (the Python app ignores them), and a failed one-time task is not retried in a loop. Both schedulers lease tasks before running them, so running both apps never runs a task twice.
 
 ## Usage and cost
 
@@ -72,6 +84,15 @@ models:
 llm:
   providers:
     openai_compatible: {base_url: http://localhost:11434/v1, default_model: llama3.3}
+skills:
+  weather-fetch:
+    config: {api_key_env: WEATHER_KEY}   # passed to scripts as "config"
+mcp_servers:
+  - name: github
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env_vars: [GITHUB_TOKEN]            # forwarded from the engine's environment
+    risk_level: yellow                  # optional override for every tool on this server
 ```
 
 ## Protocol
@@ -90,8 +111,11 @@ Types are in `internal/protocol`. Methods:
 | API keys | `credential/list`, `credential/add`, `credential/test`, `credential/update`, `credential/rotate`, `credential/delete` |
 | Usage | `usage/summary`, `usage/setBudget` |
 | Complexity | `complexity/getDefaults`, `complexity/setDefaults` |
+| Tasks | `task/list`, `task/create`, `task/cancel`, `task/runNow`, `task/runs` |
+| Skills | `skill/list`, `skill/get`, `skill/install`, `skill/remove` |
+| MCP and tools | `mcp/list`, `mcp/restart`, `tool/list` |
 
-Notifications: `turn/started`, `turn/completed` (with `usage`), `item/started`, `item/delta`, `item/completed`, `thread/updated`, `approval/request` and `approval/resolved` (admin clients), `usage/budgetWarning`. A client receives thread events for threads it started, read or sent a turn to, or all threads after `events/subscribe {all: true}`.
+Notifications: `turn/started`, `turn/completed` (with `usage`), `item/started`, `item/delta`, `item/completed`, `thread/updated`, `approval/request`, `approval/resolved`, `usage/budgetWarning` and `task/updated` (admin clients). A client receives thread events for threads it started, read or sent a turn to, or all threads after `events/subscribe {all: true}`.
 
 Approvals are a notification plus `approval/respond` rather than a server-to-client request: the first admin answer wins, later ones get error `-32005`, and everyone gets `approval/resolved`.
 
@@ -106,7 +130,11 @@ internal/engine/     threads, turns, agent loop, approvals, titles
 internal/llm/        Claude, OpenAI(-compatible) and Gemini streaming adapters (plain HTTP)
 internal/models/     catalog, prices, cost, complexity presets and Auto classifier
 internal/credentials/ API keys, Keychain, budgets, fallback
-internal/tools/      built-in tools (file.read/list/write, shell.run) + workspace ACL
+internal/tools/      tool registry, built-in tools (file.read/list/write, shell.run), workspace ACL
+internal/skills/     SKILL.md loader, runtimes/venvs, skill tools, install/remove
+internal/mcp/        MCP client (stdio + Streamable HTTP) and tool bridge
+internal/tasks/      schedules (incl. cron), scheduler loop, task tools
+internal/procutil/   subprocess cleanup (process groups, timeouts)
 internal/policy/     approval policy
 internal/store/      SQLite (pure Go, WASM build of SQLite) + migrations
 internal/config/     config.yaml loader (reads the Python app's keys)
