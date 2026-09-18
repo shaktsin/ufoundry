@@ -352,3 +352,34 @@ info: ## Show system paths and state
 	@[ -d $(VENV) ]                && echo "$(GREEN)  ✓ Venv exists$(NC)"     || echo "$(YELLOW)  ! No venv$(NC)"
 
 .DEFAULT_GOAL := help
+
+# ---------------------------------------------------------------------------
+# Go engine (see GO_ENGINE.md)
+# ---------------------------------------------------------------------------
+.PHONY: go-build go-test go-vet go-engine go-universal
+
+GO         ?= go
+GO_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GO_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+GO_LDFLAGS := -s -w -X github.com/shaktsin/ufoundry/internal/version.Version=$(GO_VERSION) \
+              -X github.com/shaktsin/ufoundry/internal/version.Commit=$(GO_COMMIT)
+
+go-build: ## Build the Go engine + CLI → bin/ufoundry
+	@mkdir -p bin
+	$(GO) build -trimpath -ldflags '$(GO_LDFLAGS)' -o bin/ufoundry ./cmd/ufoundry
+
+go-test: ## Run Go tests with the race detector
+	$(GO) test -race ./...
+
+go-vet: ## gofmt check + go vet
+	@test -z "$$(gofmt -l cmd internal)" || (gofmt -l cmd internal; echo "run gofmt -w"; exit 1)
+	$(GO) vet ./...
+
+go-engine: go-build ## Run the Go engine in the foreground
+	./bin/ufoundry engine
+
+go-universal: ## Build a universal (arm64 + x86_64) macOS binary → bin/ufoundry-darwin
+	@mkdir -p bin
+	GOOS=darwin GOARCH=arm64 $(GO) build -trimpath -ldflags '$(GO_LDFLAGS)' -o bin/ufoundry-darwin-arm64 ./cmd/ufoundry
+	GOOS=darwin GOARCH=amd64 $(GO) build -trimpath -ldflags '$(GO_LDFLAGS)' -o bin/ufoundry-darwin-amd64 ./cmd/ufoundry
+	lipo -create -output bin/ufoundry-darwin bin/ufoundry-darwin-arm64 bin/ufoundry-darwin-amd64

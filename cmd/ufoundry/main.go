@@ -1,0 +1,272 @@
+// Command ufoundry is the UFoundry engine and CLI.
+//
+//	ufoundry engine            run the engine in the foreground
+//	ufoundry chat "hello"      send a message (streams the reply)
+//	ufoundry thread list       browse chat history
+//	ufoundry key add ...       manage API keys
+//	ufoundry usage             token usage and cost per key
+//
+// Run `ufoundry help` for everything.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"text/tabwriter"
+	"time"
+
+	"github.com/shaktsin/ufoundry/internal/client"
+	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/ufoundry/internal/engine"
+	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/ufoundry/internal/secrets"
+	"github.com/shaktsin/ufoundry/internal/server"
+	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/ufoundry/internal/version"
+)
+
+const usage = `UFoundry — self-hosted personal AI assistant
+
+Usage: ufoundry [--config FILE] <command> [args]
+
+Engine
+  engine                         Run the engine in the foreground
+  status                         Show engine status
+  service install|uninstall|status
+                                 Run the engine at login (launchd on macOS, systemd --user on Linux)
+
+Chat
+  chat [flags] [MESSAGE]         Send a message; without MESSAGE, start an interactive session
+      -t THREAD   continue a thread (default: new thread)
+      -p PROVIDER claude | openai | gemini | openai_compatible
+      -m MODEL    model id
+      -c LEVEL    auto | quick | standard | deep
+      -k KEY      API key id to use
+  thread list [--archived] | show ID | search QUERY | rename ID TITLE | pin ID | unpin ID
+         archive ID | unarchive ID | delete ID | fork ID [ITEM] | export ID [-o FILE]
+         set ID [-p PROVIDER] [-m MODEL] [-c LEVEL] [-k KEY]
+  approvals                      List pending approvals
+  approve ID | deny ID           Answer an approval
+
+Models and keys
+  key list | add --provider P [--label L] [--base-url URL] [--default] | test ID
+      default ID | enable ID | disable ID | fallback ID on|off | rotate ID | delete ID
+      budget ID USD [--hard-stop]
+  model list [-p PROVIDER] [--all] | hide PROVIDER MODEL | show PROVIDER MODEL | refresh KEY
+        price PROVIDER MODEL IN CACHED_IN OUT   (USD per 1M tokens)
+  complexity [show] | default LEVEL
+  usage [--by credential|model|thread|role|day] [--days N] [--key ID]
+
+  version                        Print the version
+`
+
+var configPath string
+
+func main() {
+	args := os.Args[1:]
+	for len(args) > 0 && strings.HasPrefix(args[0], "--config") {
+		if args[0] == "--config" && len(args) > 1 {
+			configPath, args = args[1], args[2:]
+		} else if v, ok := strings.CutPrefix(args[0], "--config="); ok {
+			configPath, args = v, args[1:]
+		} else {
+			break
+		}
+	}
+	if len(args) == 0 {
+		fmt.Print(usage)
+		os.Exit(2)
+	}
+	cmd, rest := args[0], args[1:]
+	var err error
+	switch cmd {
+	case "engine", "serve":
+		err = runEngine(rest)
+	case "status":
+		err = runStatus()
+	case "service":
+		err = runService(rest)
+	case "chat":
+		err = runChat(rest)
+	case "thread", "threads":
+		err = runThread(rest)
+	case "approvals":
+		err = runApprovals()
+	case "approve", "deny":
+		if len(rest) != 1 {
+			err = errors.New("usage: ufoundry " + cmd + " APPROVAL_ID")
+		} else {
+			err = runRespond(rest[0], cmd == "approve")
+		}
+	case "key", "keys":
+		err = runKey(rest)
+	case "model", "models":
+		err = runModel(rest)
+	case "complexity":
+		err = runComplexity(rest)
+	case "usage":
+		err = runUsage(rest)
+	case "version", "--version", "-v":
+		fmt.Printf("ufoundry %s (%s), protocol %s\n", version.Version, version.Commit, protocol.Version)
+	case "help", "--help", "-h":
+		fmt.Print(usage)
+	default:
+		err = fmt.Errorf("unknown command %q (see `ufoundry help`)", cmd)
+	}
+	if err != nil {
+		var pe *protocol.Error
+		if errors.As(err, &pe) {
+			fmt.Fprintln(os.Stderr, "error:", pe.Message)
+		} else {
+			fmt.Fprintln(os.Stderr, "error:", err)
+		}
+		os.Exit(1)
+	}
+}
+
+func loadConfig() (*config.Config, error) { return config.Load(configPath) }
+
+// ---- engine ----
+
+func runEngine(args []string) error {
+	fs := flag.NewFlagSet("engine", flag.ExitOnError)
+	level := fs.String("log-level", "info", "debug | info | warn | error")
+	fs.Parse(args)
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	var lvl slog.Level
+	if err := lvl.UnmarshalText([]byte(*level)); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cfg.Runtime.LogDir, 0o700); err != nil {
+		return err
+	}
+	logFile, err := os.OpenFile(filepath.Join(cfg.Runtime.LogDir, "engine.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+	log := slog.New(slog.NewJSONHandler(io.MultiWriter(os.Stderr, logFile), &slog.HandlerOptions{Level: lvl}))
+	slog.SetDefault(log)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	st, err := store.Open(ctx, cfg.Storage.DBPath)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer st.Close()
+	sec := secrets.Default(cfg.Home)
+	dotenv := config.ReadDotenv(filepath.Join(cfg.Home, ".env"))
+	legacy := func(name string) string {
+		if v := dotenv[name]; v != "" {
+			return v
+		}
+		// The Python app stored keys under service "ufoundry" (or "umabot" before the rename).
+		for _, svc := range []string{"ufoundry", "umabot"} {
+			if v, ok := secrets.ReadLegacy(svc, name); ok {
+				return v
+			}
+		}
+		return ""
+	}
+	eng, err := engine.New(ctx, engine.Options{Config: cfg, Store: st, Secrets: sec, Logger: log, Legacy: legacy})
+	if err != nil {
+		return err
+	}
+	srv := server.New(eng, log)
+	if err := srv.ListenUnix(cfg.Runtime.SocketPath); err != nil {
+		return err
+	}
+	if err := srv.ListenWebSocket(cfg.Runtime.WSHost, cfg.Runtime.EngineWSPort, filepath.Join(filepath.Dir(cfg.Runtime.SocketPath), "token")); err != nil {
+		return fmt.Errorf("websocket: %w", err)
+	}
+	log.Info("engine started", "version", version.Version, "config", cfg.Path, "db", cfg.Storage.DBPath, "secrets", sec.Backend())
+	<-ctx.Done()
+	log.Info("shutting down")
+	srv.Close()
+	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	eng.Shutdown(sctx)
+	_ = os.Remove(cfg.Runtime.SocketPath)
+	return nil
+}
+
+// ---- client helpers ----
+
+func dial(ctx context.Context) (*client.Client, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	return client.Dial(ctx, cfg.Runtime.SocketPath, "ufoundry-cli", true)
+}
+
+// call dials, calls one method and closes.
+func call(method string, params, out any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	c, err := dial(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.Call(ctx, method, params, out)
+}
+
+func table() *tabwriter.Writer { return tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0) }
+
+func printJSON(v any) {
+	b, _ := json.MarshalIndent(v, "", "  ")
+	fmt.Println(string(b))
+}
+
+func runStatus() error {
+	var st protocol.EngineStatus
+	if err := call(protocol.MethodEngineStatus, nil, &st); err != nil {
+		return err
+	}
+	fmt.Printf("engine %s (protocol %s), up %s\n", st.EngineVersion, st.ProtocolVersion, time.Since(st.StartedAt).Round(time.Second))
+	fmt.Printf("clients: %d  active turns: %d  pending approvals: %d\ndatabase: %s\n", st.Clients, st.ActiveTurns, st.PendingApprovals, st.DBPath)
+	return nil
+}
+
+func fmtTokens(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 10_000:
+		return fmt.Sprintf("%.0fk", float64(n)/1e3)
+	case n >= 1000:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func fmtUsage(u protocol.UsageTotals) string {
+	s := fmt.Sprintf("%s in", fmtTokens(u.InputTokens))
+	if u.CachedInputTokens > 0 {
+		s += fmt.Sprintf(" (%s cached)", fmtTokens(u.CachedInputTokens))
+	}
+	s += fmt.Sprintf(" · %s out", fmtTokens(u.OutputTokens))
+	if u.ReasoningTokens > 0 {
+		s += fmt.Sprintf(" (%s reasoning)", fmtTokens(u.ReasoningTokens))
+	}
+	s += fmt.Sprintf(" · $%.4f", u.CostUSD)
+	if u.Estimated {
+		s += " (estimated)"
+	}
+	return s
+}
