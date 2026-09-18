@@ -20,6 +20,8 @@ Tell it to manage your calendar, run scripts, browse the web, or handle anything
 
 ---
 
+> **Go engine (preview).** UFoundry is moving to a single Go binary plus a native macOS app. The new engine already handles chat history, provider/model/complexity selection, API keys in the Keychain and token usage per key: `make go-build && ./bin/ufoundry engine`. See [GO_ENGINE.md](GO_ENGINE.md). The Python app below remains the full-featured version during the migration.
+
 ## Quick Start
 
 **Requirements:** Python 3.11+, a Telegram bot token (from [@BotFather](https://t.me/BotFather)), and an API key for Claude, OpenAI, or Gemini.

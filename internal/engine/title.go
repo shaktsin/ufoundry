@@ -1,0 +1,111 @@
+package engine
+
+import (
+	"context"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/shaktsin/ufoundry/internal/llm"
+	"github.com/shaktsin/ufoundry/internal/models"
+	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/ufoundry/internal/store"
+)
+
+// generateTitle names a thread after its first completed turn. It asks the
+// provider's cheapest model (usage recorded under role "title") and falls back
+// to the first words of the user's message.
+func (e *Engine) generateTitle(ctx context.Context, threadID string, turn protocol.Turn) {
+	items, err := e.Store.ListItems(ctx, threadID, 0)
+	if err != nil {
+		return
+	}
+	var first, reply string
+	for _, it := range items {
+		if it.Kind == protocol.ItemUserMessage && first == "" {
+			first = it.Text
+		}
+		if it.Kind == protocol.ItemAgentMessage && reply == "" && it.Status == protocol.ItemCompleted {
+			reply = it.Text
+		}
+	}
+	title := fallbackTitle(first)
+	if t := e.llmTitle(ctx, turn, first, reply); t != "" {
+		title = t
+	}
+	if title == "" {
+		return
+	}
+	_ = e.Store.UpdateThread(ctx, threadID, map[string]any{"title": title})
+}
+
+func (e *Engine) llmTitle(ctx context.Context, turn protocol.Turn, first, reply string) string {
+	provider := turn.Resolved.Provider
+	model := e.Catalog.CheapModel(provider)
+	if rc, ok := e.Cfg.Models.Roles["title"]; ok && rc.Model != "" && (rc.Provider == "" || rc.Provider == provider) {
+		model = rc.Model
+	}
+	if model == "" {
+		model = turn.Resolved.Model
+	}
+	p, ok := e.LLMs.Get(provider)
+	if !ok {
+		return ""
+	}
+	cred, err := e.Creds.Resolve(ctx, provider, turn.Resolved.CredentialID)
+	if err != nil {
+		return ""
+	}
+	tctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	prompt := "Write a 3-6 word title for this chat. Reply with the title only, no quotes or punctuation at the end.\n\nUser: " +
+		clipRunes(first, 1500) + "\n\nAssistant: " + clipRunes(reply, 1500)
+	start := time.Now()
+	ch, err := p.Stream(tctx, cred.Material, llm.Request{Model: model, Messages: []llm.Message{llm.Text(llm.RoleUser, prompt)}, MaxTokens: 60})
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	var usage llm.Usage
+	ok = false
+	for ev := range ch {
+		switch ev.Type {
+		case llm.EventTextDelta:
+			b.WriteString(ev.Text)
+		case llm.EventDone:
+			usage, ok = ev.Usage, true
+		}
+	}
+	meta := e.Catalog.Lookup(ctx, provider, model)
+	totals := protocol.UsageTotals{InputTokens: usage.InputTokens, CachedInputTokens: usage.CachedInputTokens,
+		OutputTokens: usage.OutputTokens, ReasoningTokens: usage.ReasoningTokens, Requests: 1,
+		CostUSD: models.Cost(meta, usage), Estimated: !usage.Reported}
+	status := "ok"
+	if !ok {
+		status = "error"
+	}
+	_ = e.Store.InsertUsage(ctx, store.UsageRecord{CredentialID: cred.Record.ID, Provider: provider, Model: model,
+		ThreadID: turn.ThreadID, TurnID: turn.ID, Role: "title", Usage: totals,
+		LatencyMs: time.Since(start).Milliseconds(), Status: status})
+	if !ok {
+		return ""
+	}
+	t := strings.TrimSpace(strings.Trim(strings.TrimSpace(b.String()), `"'.`))
+	if i := strings.IndexByte(t, '\n'); i >= 0 {
+		t = t[:i]
+	}
+	return clipRunes(t, 80)
+}
+
+func fallbackTitle(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	return clipRunes(s, 60)
+}
+
+func clipRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return strings.TrimSpace(string(r[:n])) + "…"
+}

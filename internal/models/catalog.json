@@ -1,0 +1,34 @@
+{
+  "_comment": "Bundled model metadata and list prices (USD per 1M tokens), checked 2026-09-18 against the providers' pricing pages. Prices change: users can override them in Settings > Models. reasoningStyle: claude adaptive|budget, gemini level|budget.",
+  "models": [
+    {"provider": "claude", "id": "claude-opus-5", "displayName": "Claude Opus 5", "contextWindow": 1000000, "tools": true, "images": true, "reasoning": true, "reasoningStyle": "adaptive", "in": 5, "cachedIn": 0.5, "out": 25},
+    {"provider": "claude", "id": "claude-sonnet-5", "displayName": "Claude Sonnet 5", "contextWindow": 1000000, "tools": true, "images": true, "reasoning": true, "reasoningStyle": "adaptive", "in": 2, "cachedIn": 0.2, "out": 10},
+    {"provider": "claude", "id": "claude-fable-5-1", "displayName": "Claude Fable 5.1", "contextWindow": 1000000, "tools": true, "images": true, "reasoning": true, "reasoningStyle": "adaptive", "in": 10, "cachedIn": 0.25, "out": 50},
+    {"provider": "claude", "id": "claude-opus-4-6", "displayName": "Claude Opus 4.6", "contextWindow": 200000, "tools": true, "images": true, "reasoning": true, "reasoningStyle": "adaptive", "in": 5, "cachedIn": 0.5, "out": 25},
+    {"provider": "claude", "id": "claude-sonnet-4-6", "displayName": "Claude Sonnet 4.6", "contextWindow": 200000, "tools": true, "images": true, "reasoning": true, "reasoningStyle": "adaptive", "in": 3, "cachedIn": 0.3, "out": 15},
+    {"provider": "claude", "id": "claude-haiku-4-5-20251001", "displayName": "Claude Haiku 4.5", "contextWindow": 200000, "tools": true, "images": true, "reasoning": true, "reasoningStyle": "budget", "in": 1, "cachedIn": 0.1, "out": 5},
+
+    {"provider": "openai", "id": "gpt-5.6-sol", "displayName": "GPT-5.6 Sol", "tools": true, "images": true, "reasoning": true, "in": 2, "cachedIn": 0.2, "out": 10},
+    {"provider": "openai", "id": "gpt-5.6-terra", "displayName": "GPT-5.6 Terra", "tools": true, "images": true, "reasoning": true, "in": 1, "cachedIn": 0.1, "out": 6},
+    {"provider": "openai", "id": "gpt-5.6-luna", "displayName": "GPT-5.6 Luna", "tools": true, "images": true, "reasoning": true, "in": 0.1, "cachedIn": 0.01, "out": 0.6},
+    {"provider": "openai", "id": "gpt-5.4-mini", "displayName": "GPT-5.4 mini", "tools": true, "images": true, "reasoning": true, "priceUnknown": true},
+    {"provider": "openai", "id": "o4-mini", "displayName": "o4-mini", "tools": true, "images": true, "reasoning": true, "priceUnknown": true},
+    {"provider": "openai", "id": "gpt-4o-mini", "displayName": "GPT-4o mini", "tools": true, "images": true, "reasoning": false, "priceUnknown": true},
+
+    {"provider": "gemini", "id": "gemini-3.1-pro-preview", "displayName": "Gemini 3.1 Pro (preview)", "tools": true, "images": true, "reasoning": true, "reasoningStyle": "level", "in": 2, "cachedIn": 0.2, "out": 12},
+    {"provider": "gemini", "id": "gemini-3.5-flash", "displayName": "Gemini 3.5 Flash", "tools": true, "images": true, "reasoning": true, "reasoningStyle": "level", "in": 1.5, "cachedIn": 0.15, "out": 9},
+    {"provider": "gemini", "id": "gemini-3.5-flash-lite", "displayName": "Gemini 3.5 Flash-Lite", "tools": true, "images": true, "reasoning": true, "reasoningStyle": "level", "in": 0.3, "cachedIn": 0.03, "out": 2.5},
+    {"provider": "gemini", "id": "gemini-2.5-pro", "displayName": "Gemini 2.5 Pro", "contextWindow": 1048576, "tools": true, "images": true, "reasoning": true, "reasoningStyle": "budget", "in": 1.25, "cachedIn": 0.125, "out": 10}
+  ],
+  "defaults": {
+    "claude": "claude-sonnet-5",
+    "openai": "gpt-5.6-terra",
+    "gemini": "gemini-3.5-flash",
+    "openai_compatible": ""
+  },
+  "cheap": {
+    "claude": "claude-haiku-4-5-20251001",
+    "openai": "gpt-5.6-luna",
+    "gemini": "gemini-3.5-flash-lite"
+  }
+}
