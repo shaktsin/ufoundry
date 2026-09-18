@@ -8,7 +8,7 @@ import subprocess
 import typing
 from dataclasses import is_dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 import yaml
 
@@ -88,6 +88,7 @@ def load_config(
     overrides: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Config, str]:
     cfg = default_config()
+    _migrate_legacy_home()
 
     resolved_config_path = _pick_config_path(config_path)
     resolved_env_path = _pick_env_path(env_path)
@@ -97,11 +98,11 @@ def load_config(
         if data:
             _update_dataclass(cfg, data)
 
-    dotenv = _read_dotenv(resolved_env_path)
+    dotenv = _with_legacy_names(_read_dotenv(resolved_env_path))
     if dotenv:
         _apply_env_map(cfg, dotenv)
 
-    _apply_env_map(cfg, os.environ)
+    _apply_env_map(cfg, _with_legacy_names(os.environ))
 
     if overrides:
         _apply_overrides(cfg, overrides)
@@ -659,16 +660,55 @@ def _load_keychain_secrets(cfg: Config) -> None:
 
 
 def _read_keychain_secret(account: str) -> Optional[str]:
+    # Secrets saved before the rename live under service "umabot" with
+    # UMABOT_* account names; fall back to them.
+    candidates = [("ufoundry", account)]
+    if account.startswith("UFOUNDRY_"):
+        candidates.append(("umabot", "UMABOT_" + account[len("UFOUNDRY_"):]))
+    for service, acct in candidates:
+        try:
+            result = subprocess.run(
+                ["security", "find-generic-password", "-a", acct, "-s", service, "-w"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            continue
+        value = result.stdout.strip()
+        if value:
+            return value
+    return None
+
+
+def _with_legacy_names(env: Mapping[str, str]) -> Dict[str, str]:
+    """Return env with UMABOT_* variables also exposed as UFOUNDRY_* (unless set)."""
+    out = dict(env)
+    for key, value in env.items():
+        if key.startswith("UMABOT_"):
+            new_key = "UFOUNDRY_" + key[len("UMABOT_"):]
+            if new_key not in out:
+                logger.warning("%s is deprecated; rename it to %s", key, new_key)
+                out[new_key] = value
+    return out
+
+
+def _migrate_legacy_home() -> None:
+    """Move ~/.umabot to ~/.ufoundry once, leaving symlinks so old paths keep working."""
+    home = Path.home()
+    legacy, current = home / ".umabot", home / ".ufoundry"
     try:
-        result = subprocess.run(
-            ["security", "find-generic-password", "-a", account, "-s", "ufoundry", "-w"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout.strip() or None
-    except Exception:
-        return None
+        if current.exists() or not legacy.is_dir() or legacy.is_symlink():
+            return
+        legacy.rename(current)
+        legacy.symlink_to(current)
+        old_db, new_db = current / "umabot.db", current / "ufoundry.db"
+        if old_db.exists() and not new_db.exists():
+            old_db.rename(new_db)
+            old_db.symlink_to(new_db)
+        logger.info("Moved %s to %s", legacy, current)
+    except OSError as exc:
+        logger.warning("Could not migrate %s to %s: %s", legacy, current, exc)
 
 
 def _debug_secrets_enabled() -> bool:
