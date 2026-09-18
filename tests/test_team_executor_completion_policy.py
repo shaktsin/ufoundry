@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from umabot.agents.agent import AgentRunResult
-from umabot.agents.team_executor import ChainMemberFailedError, TeamExecutor
+from ufoundry.agents.agent import AgentRunResult
+from ufoundry.agents.team_executor import ChainMemberFailedError, TeamExecutor
 
 
 def _executor() -> TeamExecutor:

@@ -18,9 +18,9 @@ PYTHON    := python3
 VENV      := .venv
 BIN       := $(VENV)/bin
 PIP       := $(BIN)/pip
-UMABOT    := $(BIN)/umabot
+UFOUNDRY    := $(BIN)/ufoundry
 
-CONFIG_DIR  := $(HOME)/.umabot
+CONFIG_DIR  := $(HOME)/.ufoundry
 CONFIG_FILE := $(CONFIG_DIR)/config.yaml
 LOG_LEVEL   := DEBUG
 
@@ -36,7 +36,7 @@ NC     := \033[0m
 # ---------------------------------------------------------------------------
 
 help: ## Show this help
-	@echo "$(BLUE)UmaBot — Self-hosted AI Assistant$(NC)"
+	@echo "$(BLUE)UFoundry — Self-hosted AI Assistant$(NC)"
 	@echo ""
 	@echo "$(GREEN)Config:$(NC)  $(CONFIG_FILE)"
 	@echo "$(GREEN)Venv:$(NC)    $(VENV)"
@@ -56,11 +56,11 @@ help: ## Show this help
 	@echo "  $(YELLOW)status$(NC)        Show whether daemon is running"
 	@echo "  $(YELLOW)reload$(NC)        Hot-reload config without restart"
 	@echo "  $(YELLOW)logs$(NC)          Tail the live log file"
-	@echo "  $(YELLOW)ps$(NC)            List all UmaBot processes"
+	@echo "  $(YELLOW)ps$(NC)            List all UFoundry processes"
 	@echo ""
 	@echo "$(GREEN)Control Panel$(NC)"
 	@echo "  $(YELLOW)panel$(NC)         Start web control panel (installs deps, opens browser)"
-	@echo "  $(YELLOW)panel-build$(NC)   Build frontend → umabot/controlpanel/static/"
+	@echo "  $(YELLOW)panel-build$(NC)   Build frontend → ufoundry/controlpanel/static/"
 	@echo "  $(YELLOW)panel-dev$(NC)     Start frontend HMR dev server (needs 'make run' on :8080)"
 	@echo ""
 	@echo "$(GREEN)Skills$(NC)"
@@ -72,7 +72,7 @@ help: ## Show this help
 	@echo "  $(YELLOW)config$(NC)        Print current config.yaml"
 	@echo "  $(YELLOW)edit$(NC)          Open config.yaml in \$$EDITOR"
 	@echo "  $(YELLOW)db$(NC)            Open SQLite shell"
-	@echo "  $(YELLOW)db-backup$(NC)     Backup database to ~/.umabot/backups/"
+	@echo "  $(YELLOW)db-backup$(NC)     Backup database to ~/.ufoundry/backups/"
 	@echo "  $(YELLOW)db-reset$(NC)      Delete database (keep config)"
 	@echo ""
 	@echo "$(GREEN)Development$(NC)"
@@ -80,12 +80,12 @@ help: ## Show this help
 	@echo "  $(YELLOW)lint$(NC)          Run flake8 + mypy"
 	@echo "  $(YELLOW)format$(NC)        Format code with black"
 	@echo "  $(YELLOW)check$(NC)         lint + test"
-	@echo "  $(YELLOW)shell$(NC)         Python REPL with umabot imported"
+	@echo "  $(YELLOW)shell$(NC)         Python REPL with ufoundry imported"
 	@echo "  $(YELLOW)gateway$(NC)       Start gateway only (no connectors, for dev)"
 	@echo ""
 	@echo "$(GREEN)Cleanup$(NC)"
-	@echo "  $(YELLOW)reset$(NC)         Wipe ~/.umabot/ + sessions, keep .venv  →  re-run 'make init'"
-	@echo "  $(YELLOW)clean$(NC)         Nuke everything: .venv + ~/.umabot/ + sessions  →  clean slate"
+	@echo "  $(YELLOW)reset$(NC)         Wipe ~/.ufoundry/ + sessions, keep .venv  →  re-run 'make init'"
+	@echo "  $(YELLOW)clean$(NC)         Nuke everything: .venv + ~/.ufoundry/ + sessions  →  clean slate"
 	@echo ""
 	@echo "$(GREEN)Release$(NC)"
 	@echo "  $(YELLOW)build$(NC)         Build frontend + dist packages"
@@ -107,7 +107,7 @@ $(INSTALL_STAMP): pyproject.toml
 	@touch $(INSTALL_STAMP)
 
 install: $(INSTALL_STAMP) ## Create venv and install dependencies (skips if pyproject.toml unchanged)
-	@echo "$(GREEN)✓ UmaBot installed. Run 'make init' to configure.$(NC)"
+	@echo "$(GREEN)✓ UFoundry installed. Run 'make init' to configure.$(NC)"
 
 dev: ## Install with dev dependencies (pytest, black, mypy, flake8)
 	@echo "$(BLUE)Installing dev dependencies...$(NC)"
@@ -128,18 +128,18 @@ upgrade: ## Upgrade all installed dependencies
 init: $(INSTALL_STAMP) ## Run interactive configuration wizard
 	@echo "$(BLUE)Running configuration wizard...$(NC)"
 	@mkdir -p $(CONFIG_DIR)
-	@$(UMABOT) onboard --config $(CONFIG_FILE) --log-level $(LOG_LEVEL)
+	@$(UFOUNDRY) onboard --config $(CONFIG_FILE) --log-level $(LOG_LEVEL)
 
 doctor: $(INSTALL_STAMP) ## Check config, connectors, and skill health
 	@echo "$(BLUE)Running diagnostics...$(NC)"
-	@$(UMABOT) doctor --config $(CONFIG_FILE) --log-level $(LOG_LEVEL) || true
+	@$(UFOUNDRY) doctor --config $(CONFIG_FILE) --log-level $(LOG_LEVEL) || true
 
 # ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
 run: $(INSTALL_STAMP) ## Start in foreground; auto-starts web panel if configured (Ctrl+C to stop)
-	@echo "$(BLUE)Starting UmaBot...$(NC)"
+	@echo "$(BLUE)Starting UFoundry...$(NC)"
 	@echo "$(YELLOW)Ctrl+C to stop$(NC)"
 	@( \
 		PANEL_PID=""; \
@@ -147,24 +147,24 @@ run: $(INSTALL_STAMP) ## Start in foreground; auto-starts web panel if configure
 			$(PIP) install --quiet -e ".[panel]"; \
 			PORT=$$(grep 'web_port' $(CONFIG_FILE) 2>/dev/null | awk '{print $$2}' | head -1); \
 			PORT=$${PORT:-8080}; \
-			$(BIN)/python -m umabot.controlpanel --config $(CONFIG_FILE) --no-open --log-level $(LOG_LEVEL) & \
+			$(BIN)/python -m ufoundry.controlpanel --config $(CONFIG_FILE) --no-open --log-level $(LOG_LEVEL) & \
 			PANEL_PID=$$!; \
 			echo "$(GREEN)✓ Panel → http://127.0.0.1:$$PORT$(NC)"; \
 		fi; \
 		cleanup() { [ -n "$$PANEL_PID" ] && kill "$$PANEL_PID" 2>/dev/null; }; \
 		trap cleanup EXIT INT TERM; \
-		$(UMABOT) orchestrate --config $(CONFIG_FILE) --log-level $(LOG_LEVEL); \
+		$(UFOUNDRY) orchestrate --config $(CONFIG_FILE) --log-level $(LOG_LEVEL); \
 	)
 
 start: $(INSTALL_STAMP) ## Start as background daemon
 	@echo "$(BLUE)Starting daemon...$(NC)"
-	@$(UMABOT) start --config $(CONFIG_FILE) --log-level $(LOG_LEVEL)
+	@$(UFOUNDRY) start --config $(CONFIG_FILE) --log-level $(LOG_LEVEL)
 	@sleep 1
 	@$(MAKE) status
 
-stop: ## Stop daemon or any foreground UmaBot processes
-	@echo "$(YELLOW)Stopping UmaBot...$(NC)"
-	@PID_FILE="$(CONFIG_DIR)/umabot.pid"; \
+stop: ## Stop daemon or any foreground UFoundry processes
+	@echo "$(YELLOW)Stopping UFoundry...$(NC)"
+	@PID_FILE="$(CONFIG_DIR)/ufoundry.pid"; \
 	if [ -f "$$PID_FILE" ]; then \
 		PID=$$(cat "$$PID_FILE" 2>/dev/null); \
 		if [ -n "$$PID" ] && kill -0 "$$PID" 2>/dev/null; then \
@@ -173,7 +173,7 @@ stop: ## Stop daemon or any foreground UmaBot processes
 		fi; \
 		rm -f "$$PID_FILE"; \
 	fi
-	@for pat in "umabot orchestrate" "umabot.controlpanel" "umabot.gateway"; do \
+	@for pat in "ufoundry orchestrate" "ufoundry.controlpanel" "ufoundry.gateway"; do \
 		pids=$$(pgrep -f "$$pat" 2>/dev/null); \
 		if [ -n "$$pids" ]; then \
 			echo "  Stopping $$pat (PID $$pids)"; \
@@ -181,7 +181,7 @@ stop: ## Stop daemon or any foreground UmaBot processes
 		fi; \
 	done
 	@sleep 1
-	@for pat in "umabot orchestrate" "umabot.controlpanel" "umabot.gateway"; do \
+	@for pat in "ufoundry orchestrate" "ufoundry.controlpanel" "ufoundry.gateway"; do \
 		pids=$$(pgrep -f "$$pat" 2>/dev/null); \
 		if [ -n "$$pids" ]; then \
 			echo "  $(RED)Force-killing $$pat (PID $$pids)$(NC)"; \
@@ -193,18 +193,18 @@ stop: ## Stop daemon or any foreground UmaBot processes
 restart: stop start ## Stop then start daemon
 
 status: $(INSTALL_STAMP) ## Show whether daemon is running
-	@$(UMABOT) status --config $(CONFIG_FILE) || echo "$(RED)UmaBot is not running$(NC)"
+	@$(UFOUNDRY) status --config $(CONFIG_FILE) || echo "$(RED)UFoundry is not running$(NC)"
 
 reload: $(INSTALL_STAMP) ## Hot-reload config without restart
 	@echo "$(YELLOW)Reloading config...$(NC)"
-	@$(UMABOT) reload --config $(CONFIG_FILE)
+	@$(UFOUNDRY) reload --config $(CONFIG_FILE)
 
 logs: ## Tail the live log file
-	@tail -f $(CONFIG_DIR)/logs/umabot.log
+	@tail -f $(CONFIG_DIR)/logs/ufoundry.log
 
-ps: ## List all UmaBot processes
-	@ps aux | grep -E "umabot|python.*gateway|python.*connector" | grep -v grep \
-		|| echo "$(YELLOW)No UmaBot processes running$(NC)"
+ps: ## List all UFoundry processes
+	@ps aux | grep -E "ufoundry|python.*gateway|python.*connector" | grep -v grep \
+		|| echo "$(YELLOW)No UFoundry processes running$(NC)"
 
 # ---------------------------------------------------------------------------
 # Control Panel
@@ -213,37 +213,37 @@ ps: ## List all UmaBot processes
 panel: $(INSTALL_STAMP) ## Start web control panel (installs deps, opens browser)
 	@echo "$(BLUE)Starting control panel...$(NC)"
 	@$(PIP) install --quiet -e ".[panel]"
-	@$(UMABOT) panel --config $(CONFIG_FILE) --log-level $(LOG_LEVEL)
+	@$(UFOUNDRY) panel --config $(CONFIG_FILE) --log-level $(LOG_LEVEL)
 
-panel-build: ## Build frontend → umabot/controlpanel/static/
+panel-build: ## Build frontend → ufoundry/controlpanel/static/
 	@echo "$(BLUE)Building frontend...$(NC)"
-	@cd umabot/controlpanel/frontend && npm install && npm run build
-	@echo "$(GREEN)✓ Built → umabot/controlpanel/static/$(NC)"
+	@cd ufoundry/controlpanel/frontend && npm install && npm run build
+	@echo "$(GREEN)✓ Built → ufoundry/controlpanel/static/$(NC)"
 
 panel-dev: ## Start frontend HMR dev server (requires 'make run' on :8080)
 	@echo "$(BLUE)Starting HMR dev server → http://localhost:5173$(NC)"
 	@echo "$(YELLOW)Requires 'make run' running on :8080$(NC)"
-	@cd umabot/controlpanel/frontend && npm run dev
+	@cd ufoundry/controlpanel/frontend && npm run dev
 
 # ---------------------------------------------------------------------------
 # Skills
 # ---------------------------------------------------------------------------
 
 skills: $(INSTALL_STAMP) ## List all loaded skills
-	@$(UMABOT) skills list --config $(CONFIG_FILE)
+	@$(UFOUNDRY) skills list --config $(CONFIG_FILE)
 
 skill-add: $(INSTALL_STAMP) ## Install a skill  (make skill-add SKILL=<path|url|name>)
 	@if [ -z "$(SKILL)" ]; then \
 		echo "$(RED)Usage: make skill-add SKILL=<path|url|name>$(NC)"; exit 1; \
 	fi
-	@$(UMABOT) skills install $(SKILL) --config $(CONFIG_FILE)
+	@$(UFOUNDRY) skills install $(SKILL) --config $(CONFIG_FILE)
 	@echo "$(YELLOW)Run 'make reload' to activate$(NC)"
 
 skill-rm: $(INSTALL_STAMP) ## Remove a skill  (make skill-rm SKILL=<name>)
 	@if [ -z "$(SKILL)" ]; then \
 		echo "$(RED)Usage: make skill-rm SKILL=<name>$(NC)"; exit 1; \
 	fi
-	@$(UMABOT) skills remove $(SKILL) --config $(CONFIG_FILE)
+	@$(UFOUNDRY) skills remove $(SKILL) --config $(CONFIG_FILE)
 	@echo "$(YELLOW)Run 'make reload' to deactivate$(NC)"
 
 # ---------------------------------------------------------------------------
@@ -258,18 +258,18 @@ edit: ## Open config.yaml in $$EDITOR (falls back to nano)
 	@$${EDITOR:-nano} $(CONFIG_FILE)
 
 db: ## Open SQLite shell
-	@sqlite3 $(CONFIG_DIR)/umabot.db
+	@sqlite3 $(CONFIG_DIR)/ufoundry.db
 
-db-backup: ## Backup database to ~/.umabot/backups/
+db-backup: ## Backup database to ~/.ufoundry/backups/
 	@mkdir -p $(CONFIG_DIR)/backups
-	@cp $(CONFIG_DIR)/umabot.db $(CONFIG_DIR)/backups/umabot-$(shell date +%Y%m%d-%H%M%S).db
+	@cp $(CONFIG_DIR)/ufoundry.db $(CONFIG_DIR)/backups/ufoundry-$(shell date +%Y%m%d-%H%M%S).db
 	@echo "$(GREEN)✓ Backed up$(NC)"
 
 db-reset: stop ## Delete database — keep config (WARNING: loses all history)
 	@echo "$(RED)WARNING: Deletes all messages, tasks, and history$(NC)"
 	@read -p "Are you sure? (yes/no): " c; [ "$$c" = "yes" ] || { echo "Cancelled"; exit 0; }
-	@rm -f $(CONFIG_DIR)/umabot.db $(CONFIG_DIR)/umabot.db-shm $(CONFIG_DIR)/umabot.db-wal
-	@echo "$(GREEN)✓ Database cleared — restart UmaBot to recreate$(NC)"
+	@rm -f $(CONFIG_DIR)/ufoundry.db $(CONFIG_DIR)/ufoundry.db-shm $(CONFIG_DIR)/ufoundry.db-wal
+	@echo "$(GREEN)✓ Database cleared — restart UFoundry to recreate$(NC)"
 
 # ---------------------------------------------------------------------------
 # Development
@@ -281,35 +281,35 @@ test: ## Run pytest
 
 lint: ## Run flake8 + mypy
 	@echo "$(YELLOW)Linting...$(NC)"
-	@$(BIN)/flake8 umabot/ || true
-	@$(BIN)/mypy umabot/ || true
+	@$(BIN)/flake8 ufoundry/ || true
+	@$(BIN)/mypy ufoundry/ || true
 
 format: ## Format code with black
-	@$(BIN)/black umabot/
+	@$(BIN)/black ufoundry/
 	@echo "$(GREEN)✓ Formatted$(NC)"
 
 check: lint test ## Run lint + test
 
-shell: $(INSTALL_STAMP) ## Open Python REPL with umabot imported
-	@$(BIN)/python -i -c "from umabot import *; print('UmaBot loaded')"
+shell: $(INSTALL_STAMP) ## Open Python REPL with ufoundry imported
+	@$(BIN)/python -i -c "from ufoundry import *; print('UFoundry loaded')"
 
 gateway: $(INSTALL_STAMP) ## Start gateway only — no connectors (dev/debug)
 	@echo "$(BLUE)Starting gateway only...$(NC)"
-	@$(BIN)/python -m umabot.gateway --config $(CONFIG_FILE) --log-level $(LOG_LEVEL)
+	@$(BIN)/python -m ufoundry.gateway --config $(CONFIG_FILE) --log-level $(LOG_LEVEL)
 
 # ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 
-reset: stop ## Wipe ~/.umabot/ + sessions, keep .venv  →  re-run 'make init'
-	@echo "$(RED)Deletes: ~/.umabot/ (config, db, vault, logs) and *.session files$(NC)"
+reset: stop ## Wipe ~/.ufoundry/ + sessions, keep .venv  →  re-run 'make init'
+	@echo "$(RED)Deletes: ~/.ufoundry/ (config, db, vault, logs) and *.session files$(NC)"
 	@read -p "Are you sure? (yes/no): " c; [ "$$c" = "yes" ] || { echo "Cancelled"; exit 0; }
 	@rm -rf $(CONFIG_DIR)
 	@find . -maxdepth 2 -name "*.session" -delete 2>/dev/null || true
 	@echo "$(GREEN)✓ Reset. Run 'make init' to configure from scratch.$(NC)"
 
-clean: stop ## Nuke everything: .venv + ~/.umabot/ + sessions + build artifacts
-	@echo "$(RED)Deletes: .venv, ~/.umabot/, *.session, build artifacts$(NC)"
+clean: stop ## Nuke everything: .venv + ~/.ufoundry/ + sessions + build artifacts
+	@echo "$(RED)Deletes: .venv, ~/.ufoundry/, *.session, build artifacts$(NC)"
 	@read -p "Are you sure? (yes/no): " c; [ "$$c" = "yes" ] || { echo "Cancelled"; exit 0; }
 	@rm -rf build/ dist/ *.egg-info $(VENV) $(CONFIG_DIR)
 	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
@@ -339,16 +339,16 @@ publish: build ## Upload to PyPI
 # ---------------------------------------------------------------------------
 
 info: ## Show system paths and state
-	@echo "$(BLUE)UmaBot Info$(NC)"
+	@echo "$(BLUE)UFoundry Info$(NC)"
 	@echo "  Python    : $(shell $(PYTHON) --version)"
 	@echo "  Venv      : $(VENV)"
 	@echo "  Config    : $(CONFIG_FILE)"
-	@echo "  Database  : $(CONFIG_DIR)/umabot.db"
+	@echo "  Database  : $(CONFIG_DIR)/ufoundry.db"
 	@echo "  Logs      : $(CONFIG_DIR)/logs/"
 	@echo "  Log level : $(LOG_LEVEL)"
 	@echo ""
 	@[ -f $(CONFIG_FILE) ]         && echo "$(GREEN)  ✓ Config exists$(NC)"   || echo "$(YELLOW)  ! No config$(NC)"
-	@[ -f $(CONFIG_DIR)/umabot.db ] && echo "$(GREEN)  ✓ Database exists$(NC)" || echo "$(YELLOW)  ! No database$(NC)"
+	@[ -f $(CONFIG_DIR)/ufoundry.db ] && echo "$(GREEN)  ✓ Database exists$(NC)" || echo "$(YELLOW)  ! No database$(NC)"
 	@[ -d $(VENV) ]                && echo "$(GREEN)  ✓ Venv exists$(NC)"     || echo "$(YELLOW)  ! No venv$(NC)"
 
 .DEFAULT_GOAL := help

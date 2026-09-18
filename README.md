@@ -1,10 +1,10 @@
-# UmaBot
+# UFoundry
 
 A modular, multi-agent AI assistant with pluggable skills, mcps and multi-channel support.
 
 Tell it to manage your calendar, run scripts, browse the web, or handle anything you'd otherwise do manually. It asks for your approval before doing anything risky, and you can extend it with skills.
 
-![Demo](media/umabot-demo.gif)
+![Demo](media/ufoundry-demo.gif)
 
 ---
 
@@ -25,8 +25,8 @@ Tell it to manage your calendar, run scripts, browse the web, or handle anything
 **Requirements:** Python 3.11+, a Telegram bot token (from [@BotFather](https://t.me/BotFather)), and an API key for Claude, OpenAI, or Gemini.
 
 ```bash
-git clone https://github.com/shaktsin/umabot
-cd umabot
+git clone https://github.com/shaktsin/ufoundry
+cd ufoundry
 make install     # create venv, install deps
 make init        # interactive setup wizard
 make run         # start in foreground (Ctrl+C to stop)
@@ -122,7 +122,7 @@ control_panels:
 
 ## Configuration
 
-Config lives at `~/.umabot/config.yaml`. The easiest way to generate it is `make init`.
+Config lives at `~/.ufoundry/config.yaml`. The easiest way to generate it is `make init`.
 
 To see a fully-annotated example of every option:
 
@@ -147,8 +147,8 @@ cat config.example.yaml
 **Secrets** are never stored in `config.yaml`. They're kept in macOS Keychain (automatic) or read from environment variables:
 
 ```bash
-export UMABOT_LLM_API_KEY="sk-..."
-export UMABOT_CONNECTOR_MY_BOT_TOKEN="123:ABC..."
+export UFOUNDRY_LLM_API_KEY="sk-..."
+export UFOUNDRY_CONNECTOR_MY_BOT_TOKEN="123:ABC..."
 ```
 
 ---
@@ -160,7 +160,7 @@ Skills are packaged capabilities — a folder with a `SKILL.md` manifest and scr
 **Install a skill:**
 ```bash
 make skill-add SKILL=./path/to/skill-folder
-make skill-add SKILL=https://github.com/someone/umabot-skill-github
+make skill-add SKILL=https://github.com/someone/ufoundry-skill-github
 ```
 
 **List loaded skills:**
@@ -170,7 +170,7 @@ make skills
 
 **Add a skill directory** (all sub-folders with `SKILL.md` are loaded):
 ```yaml
-# ~/.umabot/config.yaml
+# ~/.ufoundry/config.yaml
 skill_dirs:
   - ~/projects/skills/skills
 ```
@@ -193,7 +193,7 @@ Skills run in isolated subprocesses with their own virtualenv. They can only use
 
 ## Security
 
-UmaBot has a layered security model so you stay in control of what the bot does.
+UFoundry has a layered security model so you stay in control of what the bot does.
 
 ### Tool risk tiers
 
@@ -231,7 +231,7 @@ Agents only operate inside configured workspace directories. Each workspace has 
 tools:
   workspaces:
     - name: builds
-      path: ~/umabot-workspace
+      path: ~/ufoundry-workspace
       acl:
         read: true
         write: true
@@ -250,7 +250,7 @@ For connector-agnostic inbound/outbound policy, use `policy.rules` (inline) or
 
 ```yaml
 policy:
-  rules_file: ~/.umabot/policies/default.yaml
+  rules_file: ~/.ufoundry/policies/default.yaml
   rules:
     - id: gmail-search-explicit-admin
       priority: 20

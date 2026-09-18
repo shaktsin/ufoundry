@@ -18,10 +18,10 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from umabot.config.schema import MCPServerConfig, Config
-from umabot.config.loader import load_config
-from umabot.tools.mcp_registry import MCPError, MCPRegistry, MCPServerUnavailable
-from umabot.tools.unified_registry import ToolSource, UnifiedToolRegistry
+from ufoundry.config.schema import MCPServerConfig, Config
+from ufoundry.config.loader import load_config
+from ufoundry.tools.mcp_registry import MCPError, MCPRegistry, MCPServerUnavailable
+from ufoundry.tools.unified_registry import ToolSource, UnifiedToolRegistry
 
 FAKE_SERVER = str(Path(__file__).parent / "helpers" / "fake_mcp_server.py")
 
@@ -286,7 +286,7 @@ class TestUnifiedRegistryIntegration:
         await reg.stop()
 
     async def test_builtin_and_mcp_tools_coexist(self):
-        from umabot.tools.registry import Tool, ToolResult, RISK_YELLOW
+        from ufoundry.tools.registry import Tool, ToolResult, RISK_YELLOW
 
         reg = MCPRegistry([_fake_server_config()])
         await reg.start()

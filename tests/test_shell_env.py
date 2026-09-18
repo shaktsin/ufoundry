@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from umabot.tools import shell_env
+from ufoundry.tools import shell_env
 
 
 def test_merge_path_segments_deduplicates_and_preserves_order() -> None:

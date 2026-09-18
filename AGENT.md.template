@@ -1,6 +1,6 @@
 # Agent Context
 
-This file is loaded automatically by umabot every time it starts.
+This file is loaded automatically by ufoundry every time it starts.
 Edit it to give the assistant a persona, standing instructions, personal facts,
 or any domain knowledge it should always have.
 

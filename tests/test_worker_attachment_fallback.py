@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from umabot.worker import _attachments_from_image_candidates, _extract_image_path_candidates
+from ufoundry.worker import _attachments_from_image_candidates, _extract_image_path_candidates
 
 
 def test_extract_image_path_candidates_filters_urls_and_dedupes() -> None:

@@ -1,8 +1,8 @@
-# UMA BOT Configuration Example
+# UFoundry Configuration Example
 # All fields shown with defaults and inline comments.
-# Copy to ~/.umabot/config.yaml and fill in your values.
+# Copy to ~/.ufoundry/config.yaml and fill in your values.
 # Secrets (api_key, tokens, client_secret) are stored in macOS Keychain or
-# ~/.umabot/.env — they are deliberately null here.
+# ~/.ufoundry/.env — they are deliberately null here.
 
 # ---------------------------------------------------------------------------
 # AI Provider
@@ -10,7 +10,7 @@
 llm:
   provider: claude           # claude | openai | gemini
   model: claude-sonnet-4-6  # model ID for the chosen provider
-  api_key: null              # set via env UMABOT_LLM_API_KEY or Keychain
+  api_key: null              # set via env UFOUNDRY_LLM_API_KEY or Keychain
   reasoning_effort: null     # low | medium | high  (OpenAI o-series only)
 
 # ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ control_panels:
 connectors:
   - name: control_panel_bot
     type: telegram_bot       # telegram_bot | telegram_user | discord
-    token: null              # set via env UMABOT_CONNECTOR_<NAME>_TOKEN
+    token: null              # set via env UFOUNDRY_CONNECTOR_<NAME>_TOKEN
 
   - name: public_bot
     type: telegram_bot
@@ -65,7 +65,7 @@ connectors:
   # Gmail IMAP connector — proactive email notifications via IMAP IDLE (no GCP required).
   # One-time setup:
   #   1. Enable IMAP in Gmail settings → Forwarding and POP/IMAP → Enable IMAP
-  #   2. Authorise Google in UmaBot (run make init → Integrations → Google Workspace)
+  #   2. Authorise Google in UFoundry (run make init → Integrations → Google Workspace)
   # - name: gmail_imap
   #   type: gmail_imap
   #   mailbox: INBOX              # IMAP mailbox to watch (default: INBOX)
@@ -83,7 +83,7 @@ tools:
   # against the active workspace root. shell.run cwd defaults to it.
   workspaces:
     - name: builds           # referred to by name in prompts ("use my builds workspace")
-      path: ~/umabot-workspace
+      path: ~/ufoundry-workspace
       default: true          # used when user doesn't specify a workspace
       acl:
         read: true
@@ -165,7 +165,7 @@ agents:
 
   # Path to a Markdown file injected into every agent's system prompt.
   # Edit this to give the bot standing instructions, persona, or domain context.
-  context_file: ~/.umabot/AGENT.md
+  context_file: ~/.ufoundry/AGENT.md
 
   # Orchestrator uses a strong reasoning model; workers can use a cheaper one.
   # Leave provider/model blank to inherit from the top-level llm block.
@@ -195,7 +195,7 @@ agent_teams:
   max_teams_considered: 20
   fit_gate_enabled: true
   fit_min_query_len: 60
-  install_dir: ~/.umabot/agent-teams  # writable team-pack install/create location
+  install_dir: ~/.ufoundry/agent-teams  # writable team-pack install/create location
   team_dirs:
     - ./agent_teams                    # repo-local team packs (TEAM.md per subdir)
 
@@ -251,7 +251,7 @@ policy:
   auto_approve_shell_commands: []   # safe command prefixes, e.g. ["npm run", "pytest", "git status"]
   # Optional external rule file (recommended for non-trivial ACL policy).
   # Relative paths resolve from config.yaml directory.
-  rules_file: ~/.umabot/policies/default.yaml
+  rules_file: ~/.ufoundry/policies/default.yaml
 
   # Inline rules (optional). Evaluated by ascending priority.
   # Schema:
@@ -306,15 +306,15 @@ policy:
 # Storage
 # ---------------------------------------------------------------------------
 storage:
-  db_path: ~/.umabot/umabot.db
-  vault_dir: ~/.umabot/vault
+  db_path: ~/.ufoundry/ufoundry.db
+  vault_dir: ~/.ufoundry/vault
 
 # ---------------------------------------------------------------------------
 # Runtime
 # ---------------------------------------------------------------------------
 runtime:
-  pid_file: ~/.umabot/umabot.pid
-  log_dir: ~/.umabot/logs
+  pid_file: ~/.ufoundry/ufoundry.pid
+  log_dir: ~/.ufoundry/logs
   ws_host: 127.0.0.1
   ws_port: 8765
   ws_token: null             # auto-generated on first `make init`

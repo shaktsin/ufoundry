@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from umabot.storage.db import Database
+from ufoundry.storage.db import Database
 
 
 def test_message_attachments_roundtrip(tmp_path) -> None:
-    db_path = tmp_path / "umabot.db"
+    db_path = tmp_path / "ufoundry.db"
     db = Database(str(db_path))
     try:
         session_id = db.get_or_create_session("admin", "web", "web-panel")

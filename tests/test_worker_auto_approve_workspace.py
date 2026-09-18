@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from umabot.config.schema import WorkspaceACL, WorkspaceConfig
-from umabot.policy.rules import DeclarativePolicyEngine
-from umabot.tools import ToolRegistry
-from umabot.tools.builtin import register_builtin_tools
-from umabot.tools.workspace import set_active_workspace
-from umabot.worker import Worker
+from ufoundry.config.schema import WorkspaceACL, WorkspaceConfig
+from ufoundry.policy.rules import DeclarativePolicyEngine
+from ufoundry.tools import ToolRegistry
+from ufoundry.tools.builtin import register_builtin_tools
+from ufoundry.tools.workspace import set_active_workspace
+from ufoundry.worker import Worker
 
 
 def _worker_with_policy(*, workspaces: list[str], tools: list[str], shell_cmds: list[str]) -> Worker:

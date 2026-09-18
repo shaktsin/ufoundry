@@ -1,8 +1,8 @@
-# UMA BOT declarative policy rules (v1)
+# UFoundry declarative policy rules (v1)
 #
 # Use from config.yaml:
 #   policy:
-#     rules_file: ~/.umabot/policies/default.yaml
+#     rules_file: ~/.ufoundry/policies/default.yaml
 #
 # Matching semantics:
 # - Rules run by ascending priority (lower first).
