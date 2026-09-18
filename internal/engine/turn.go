@@ -97,6 +97,16 @@ func firstNonEmpty(vals ...string) string {
 
 // StartTurn records the user's message and runs the agent loop in the background.
 func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (protocol.Turn, error) {
+	return e.startTurn(ctx, turnRequest{TurnStartParams: p})
+}
+
+// turnRequest is a turn start with engine-internal options.
+type turnRequest struct {
+	protocol.TurnStartParams
+	wait chan protocol.Turn // receives the finished turn (buffered)
+}
+
+func (e *Engine) startTurn(ctx context.Context, p turnRequest) (protocol.Turn, error) {
 	if strings.TrimSpace(p.Text) == "" && len(p.Attachments) == 0 {
 		return protocol.Turn{}, protocol.Errorf(protocol.CodeInvalidParams, "message is empty")
 	}
@@ -124,9 +134,17 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	tctx, cancel := context.WithCancel(e.baseCtx)
 	e.threadTurns[th.ID] = turn.ID
 	e.activeTurns[turn.ID] = &activeTurn{cancel: cancel, turn: turn}
+	if p.wait != nil {
+		e.turnWaiters[turn.ID] = p.wait
+	}
 	e.mu.Unlock()
 
 	var releaseOnce sync.Once
+	abort := func() {
+		e.mu.Lock()
+		delete(e.turnWaiters, turn.ID)
+		e.mu.Unlock()
+	}
 	release := func() {
 		releaseOnce.Do(func() {
 			e.mu.Lock()
@@ -138,6 +156,7 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	}
 	if err := e.Store.CreateTurn(ctx, turn); err != nil {
 		release()
+		abort()
 		return protocol.Turn{}, err
 	}
 	e.Bus.Publish(th.ID, protocol.NotifyTurnStarted, protocol.TurnEvent{Turn: turn})
@@ -145,6 +164,7 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	userItem, err := e.newItem(ctx, turn, protocol.ItemUserMessage)
 	if err != nil {
 		release()
+		abort()
 		return protocol.Turn{}, err
 	}
 	userItem.Text = p.Text
@@ -158,6 +178,7 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	}
 	if err := e.saveAndPublish(ctx, userItem, protocol.NotifyItemCompleted); err != nil {
 		release()
+		abort()
 		return protocol.Turn{}, err
 	}
 
@@ -165,7 +186,7 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	go func() {
 		defer e.wg.Done()
 		defer release()
-		e.runTurn(tctx, th, turn, res, p, release)
+		e.runTurn(tctx, th, turn, res, p.TurnStartParams, release)
 	}()
 	return turn, nil
 }
@@ -228,7 +249,7 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 		}
 	}
 	req := llm.Request{
-		Model: res.sel.Model, System: e.systemPrompt(), Tools: specs, MaxTokens: res.preset.MaxOutputTokens,
+		Model: res.sel.Model, System: e.systemPrompt(p.Text), Tools: specs, MaxTokens: res.preset.MaxOutputTokens,
 	}
 	if res.meta.Reasoning && res.preset.Reasoning != llm.ReasoningOff {
 		req.Reasoning, req.ReasoningStyle = res.preset.Reasoning, res.meta.ReasoningStyle
@@ -460,13 +481,16 @@ func (e *Engine) checkBudget(ctx context.Context, c protocol.Credential) error {
 
 // runTool executes one tool call, asking for approval when policy requires it.
 func (e *Engine) runTool(ctx, sctx context.Context, th protocol.Thread, turn protocol.Turn, call llm.ToolCall) (string, bool) {
-	name := tools.FromWire(call.Name)
+	name := call.Name
+	tool, ok := e.Tools.Get(call.Name)
+	if ok {
+		name = tool.Name()
+	}
 	it, err := e.newItem(sctx, turn, protocol.ItemToolCall)
 	if err != nil {
 		return "internal error: " + err.Error(), true
 	}
 	it.Tool = &protocol.ToolCallData{CallID: call.ID, Name: name, Args: call.Args}
-	tool, ok := e.Tools.Get(name)
 	if !ok {
 		it.Status, it.Tool.Error = protocol.ItemFailed, "unknown tool "+name
 		_ = e.saveAndPublish(sctx, it, protocol.NotifyItemCompleted)
@@ -536,6 +560,12 @@ func (e *Engine) finishTurn(ctx context.Context, th protocol.Thread, turn protoc
 	_ = e.Store.TouchThread(ctx, th.ID)
 	release()
 	e.Bus.Publish(th.ID, protocol.NotifyTurnCompleted, protocol.TurnEvent{Turn: turn})
+	e.mu.Lock()
+	if ch, ok := e.turnWaiters[turn.ID]; ok {
+		ch <- turn
+		delete(e.turnWaiters, turn.ID)
+	}
+	e.mu.Unlock()
 	e.publishThread(ctx, th.ID)
 	if th.Title == "" && turn.Status == protocol.TurnCompleted {
 		// Titles are generated in the background so the thread is free for the next turn.

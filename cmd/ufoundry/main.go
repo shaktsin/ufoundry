@@ -56,6 +56,13 @@ Chat
          archive ID | unarchive ID | delete ID | fork ID [ITEM] | export ID [-o FILE]
          set ID [-p PROVIDER] [-m MODEL] [-c LEVEL] [-k KEY]
   approvals                      List pending approvals
+
+Tasks, skills and MCP
+  task list [--all] | add (--at T | --daily HH:MM | --weekly DAY@HH:MM | --hourly M | --cron EXPR)
+       [--name N] [--tz ZONE] [-p P] [-m M] [-c LEVEL] PROMPT | cancel ID | run ID | runs ID
+  skill list | show NAME | install PATH_OR_GIT_URL [--name N] | remove NAME
+  mcp [list] | mcp restart NAME
+  tools                          List every tool the agent can use
   approve ID | deny ID           Answer an approval
 
 Models and keys
@@ -114,6 +121,14 @@ func main() {
 		err = runModel(rest)
 	case "complexity":
 		err = runComplexity(rest)
+	case "task", "tasks":
+		err = runTask(rest)
+	case "skill", "skills":
+		err = runSkill(rest)
+	case "mcp":
+		err = runMCP(rest)
+	case "tools":
+		err = runTools()
 	case "usage":
 		err = runUsage(rest)
 	case "version", "--version", "-v":

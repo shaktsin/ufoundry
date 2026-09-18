@@ -1,13 +1,17 @@
 // Package tools holds the tool registry and the built-in tools (files, shell),
-// with workspace access control.
+// with workspace access control. Skills and MCP servers add tools through
+// dynamic Sources.
 package tools
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Risk tiers.
@@ -19,6 +23,19 @@ const (
 	RiskRed    Risk = "red"
 )
 
+// ParseRisk converts a config value to a Risk (ok=false if unknown or empty).
+func ParseRisk(s string) (Risk, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "green":
+		return RiskGreen, true
+	case "yellow":
+		return RiskYellow, true
+	case "red":
+		return RiskRed, true
+	}
+	return "", false
+}
+
 // Tool is something the agent can call.
 type Tool interface {
 	Name() string
@@ -29,40 +46,92 @@ type Tool interface {
 	Call(ctx context.Context, args json.RawMessage) (string, error)
 }
 
+// Source contributes tools that can change at runtime (skills, MCP servers).
+type Source interface {
+	Tools() []Tool
+}
+
 // Registry maps tool names to tools.
 type Registry struct {
-	tools map[string]Tool
+	mu      sync.RWMutex
+	tools   map[string]Tool
+	sources []Source
 }
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry { return &Registry{tools: map[string]Tool{}} }
 
-// Add registers a tool.
-func (r *Registry) Add(t Tool) { r.tools[t.Name()] = t }
-
-// Get finds a tool by its canonical name (e.g. "shell.run") or wire name ("shell__run").
-func (r *Registry) Get(name string) (Tool, bool) {
-	if t, ok := r.tools[name]; ok {
-		return t, true
-	}
-	t, ok := r.tools[FromWire(name)]
-	return t, ok
+// Add registers a static tool.
+func (r *Registry) Add(t Tool) {
+	r.mu.Lock()
+	r.tools[t.Name()] = t
+	r.mu.Unlock()
 }
 
-// All returns tools sorted by name.
+// AddSource registers a dynamic tool source.
+func (r *Registry) AddSource(s Source) {
+	r.mu.Lock()
+	r.sources = append(r.sources, s)
+	r.mu.Unlock()
+}
+
+// All returns every tool (static first on name clash), sorted by name.
 func (r *Registry) All() []Tool {
-	out := make([]Tool, 0, len(r.tools))
-	for _, t := range r.tools {
+	r.mu.RLock()
+	byName := make(map[string]Tool, len(r.tools))
+	for n, t := range r.tools {
+		byName[n] = t
+	}
+	sources := append([]Source(nil), r.sources...)
+	r.mu.RUnlock()
+	for _, s := range sources {
+		for _, t := range s.Tools() {
+			if _, exists := byName[t.Name()]; !exists {
+				byName[t.Name()] = t
+			}
+		}
+	}
+	out := make([]Tool, 0, len(byName))
+	for _, t := range byName {
 		out = append(out, t)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
 	return out
 }
 
-// ToWire converts "shell.run" to "shell__run": provider APIs reject dots in names.
-func ToWire(name string) string { return strings.ReplaceAll(name, ".", "__") }
+// Get finds a tool by its canonical name (e.g. "shell.run") or wire name ("shell__run").
+func (r *Registry) Get(name string) (Tool, bool) {
+	for _, t := range r.All() {
+		if t.Name() == name || ToWire(t.Name()) == name {
+			return t, true
+		}
+	}
+	return nil, false
+}
 
-// FromWire reverses ToWire.
+// ToWire converts a tool name into one every provider accepts
+// (^[a-zA-Z0-9_-]{1,64}$): dots become "__", other characters "_", and long
+// names are shortened with a hash suffix.
+func ToWire(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ReplaceAll(name, ".", "__") {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	w := b.String()
+	if len(w) > 64 {
+		sum := sha256.Sum256([]byte(name))
+		w = w[:55] + "_" + hex.EncodeToString(sum[:4])
+	}
+	return w
+}
+
+// FromWire reverses ToWire for simple names ("shell__run" → "shell.run").
+// Registry.Get should be preferred: it matches any wire name exactly.
 func FromWire(name string) string { return strings.ReplaceAll(name, "__", ".") }
 
 func decode[T any](args json.RawMessage) (T, error) {

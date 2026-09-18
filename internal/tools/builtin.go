@@ -16,17 +16,21 @@ import (
 	"unicode/utf8"
 
 	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/ufoundry/internal/procutil"
 )
 
 const maxOutput = 64 << 10
 
-// RegisterBuiltins adds the built-in tools allowed by config.
-func RegisterBuiltins(r *Registry, cfg *config.Config, ws *Workspaces) {
+// SkillEnvFunc returns the environment for running commands as part of a skill.
+type SkillEnvFunc func(ctx context.Context, skill string) ([]string, error)
+
+// RegisterBuiltins adds the built-in tools allowed by config. skillEnv may be nil.
+func RegisterBuiltins(r *Registry, cfg *config.Config, ws *Workspaces, skillEnv SkillEnvFunc) {
 	r.Add(&fileRead{ws})
 	r.Add(&fileList{ws})
 	r.Add(&fileWrite{ws})
 	if cfg.Tools.ShellEnabled {
-		r.Add(&shellRun{ws: ws, autoApprove: cfg.Policy.AutoApproveShellCommands})
+		r.Add(&shellRun{ws: ws, autoApprove: cfg.Policy.AutoApproveShellCommands, skillEnv: skillEnv})
 	}
 }
 
@@ -181,6 +185,7 @@ func (t *fileWrite) Call(_ context.Context, args json.RawMessage) (string, error
 type shellRun struct {
 	ws          *Workspaces
 	autoApprove []string
+	skillEnv    SkillEnvFunc
 }
 
 func (*shellRun) Name() string { return "shell.run" }
@@ -188,7 +193,7 @@ func (*shellRun) Description() string {
 	return "Run a shell command (sh -c) in a workspace directory. Returns exit code, stdout and stderr."
 }
 func (*shellRun) Schema() json.RawMessage {
-	return schema(`{"type":"object","properties":{"command":{"type":"string"},"workspace":{"type":"string"},"timeout_seconds":{"type":"integer","description":"Default 60, max 600"}},"required":["command"]}`)
+	return schema(`{"type":"object","properties":{"command":{"type":"string"},"workspace":{"type":"string"},"timeout_seconds":{"type":"integer","description":"Default 60, max 600"},"skill":{"type":"string","description":"Run with this skill's environment (its venv, PATH and env vars; SKILL_DIR is set)"}},"required":["command"]}`)
 }
 
 func (t *shellRun) Assess(args json.RawMessage) (Risk, string) {
@@ -218,6 +223,7 @@ func (t *shellRun) Call(ctx context.Context, args json.RawMessage) (string, erro
 	a, err := decode[struct {
 		Command        string
 		Workspace      string
+		Skill          string
 		TimeoutSeconds int `json:"timeout_seconds"`
 	}](args)
 	if err != nil {
@@ -244,8 +250,19 @@ func (t *shellRun) Call(ctx context.Context, args json.RawMessage) (string, erro
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "/bin/sh", "-c", a.Command)
+	procutil.Prepare(cmd)
 	cmd.Dir = dir
 	cmd.Env = safeEnv()
+	if a.Skill != "" {
+		if t.skillEnv == nil {
+			return "", errors.New("skills are not available")
+		}
+		env, err := t.skillEnv(ctx, a.Skill)
+		if err != nil {
+			return "", err
+		}
+		cmd.Env = env
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
