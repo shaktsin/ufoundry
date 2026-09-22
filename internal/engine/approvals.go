@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/shaktsin/ufoundry/internal/protocol"
@@ -25,6 +26,17 @@ func (e *Engine) requestApproval(ctx, sctx context.Context, turn protocol.Turn, 
 		ID: store.NewID("apr"), ThreadID: turn.ThreadID, TurnID: turn.ID, ItemID: it.ID, Tool: tool, Args: args,
 		Risk: string(risk), Reason: reason, ActionSummary: summary, Status: "pending",
 		CreatedAt: now, ExpiresAt: now.Add(timeout),
+	}
+	// A decision the user asked to remember for this project answers immediately.
+	if th, err := e.Store.GetThread(sctx, turn.ThreadID); err == nil && th.ProjectID != "" {
+		switch e.Store.RememberedDecision(sctx, th.ProjectID, tool, ApprovalSignature(tool, args)) {
+		case "allow":
+			_ = e.Store.Audit(sctx, "approval.remembered", map[string]any{"tool": tool, "project": th.ProjectID, "decision": "allow"})
+			return true, nil
+		case "deny":
+			_ = e.Store.Audit(sctx, "approval.remembered", map[string]any{"tool": tool, "project": th.ProjectID, "decision": "deny"})
+			return false, nil
+		}
 	}
 	if err := e.Store.CreateApproval(sctx, a); err != nil {
 		return false, err
@@ -73,7 +85,7 @@ func (e *Engine) requestApproval(ctx, sctx context.Context, turn protocol.Turn, 
 
 // RespondApproval records a decision. The first answer wins; later answers
 // get a conflict error.
-func (e *Engine) RespondApproval(ctx context.Context, id string, approve bool, clientID string) (protocol.Approval, error) {
+func (e *Engine) RespondApproval(ctx context.Context, id string, approve, remember bool, clientID string) (protocol.Approval, error) {
 	status := "denied"
 	if approve {
 		status = "approved"
@@ -98,10 +110,47 @@ func (e *Engine) RespondApproval(ctx context.Context, id string, approve bool, c
 			}
 		}
 	}
-	_ = e.Store.Audit(ctx, "approval.decide", map[string]any{"id": id, "status": status, "by": clientID})
+	if remember && decided.ID != "" {
+		if th, err := e.Store.GetThread(ctx, decided.ThreadID); err == nil && th.ProjectID != "" {
+			decision := "deny"
+			if approve {
+				decision = "allow"
+			}
+			if err := e.Store.RememberDecision(ctx, th.ProjectID, decided.Tool, ApprovalSignature(decided.Tool, decided.Args), decision); err != nil {
+				e.Log.Warn("remember approval", "err", err)
+			}
+		}
+	}
+	_ = e.Store.Audit(ctx, "approval.decide", map[string]any{"id": id, "status": status, "by": clientID, "remember": remember})
 	e.Bus.PublishAdmin(protocol.NotifyApprovalResolved, protocol.ApprovalEvent{Approval: decided})
 	if decided.ID == "" {
 		return decided, fmt.Errorf("approval %s not found after decision", id)
 	}
 	return decided, nil
+}
+
+// ApprovalSignature identifies "the same action again" for a remembered
+// decision: the tool plus the part of its arguments a person would recognise —
+// the command's program and first argument, or the file path.
+func ApprovalSignature(tool string, args json.RawMessage) string {
+	var a struct {
+		Command string `json:"command"`
+		Path    string `json:"path"`
+		Skill   string `json:"skill"`
+		Script  string `json:"script"`
+	}
+	_ = json.Unmarshal(args, &a)
+	switch {
+	case a.Command != "":
+		fields := strings.Fields(a.Command)
+		if len(fields) > 2 {
+			fields = fields[:2]
+		}
+		return strings.Join(fields, " ")
+	case a.Skill != "" && a.Script != "":
+		return a.Skill + "/" + a.Script
+	case a.Path != "":
+		return a.Path
+	}
+	return tool
 }

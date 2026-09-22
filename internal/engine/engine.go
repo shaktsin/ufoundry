@@ -21,6 +21,7 @@ import (
 	"github.com/shaktsin/ufoundry/internal/mcp"
 	"github.com/shaktsin/ufoundry/internal/models"
 	"github.com/shaktsin/ufoundry/internal/policy"
+	"github.com/shaktsin/ufoundry/internal/projects"
 	"github.com/shaktsin/ufoundry/internal/protocol"
 	"github.com/shaktsin/ufoundry/internal/secrets"
 	"github.com/shaktsin/ufoundry/internal/skills"
@@ -32,17 +33,18 @@ import (
 
 // Engine is the UFoundry core.
 type Engine struct {
-	Cfg     *config.Config
-	Store   *store.Store
-	LLMs    *llm.Registry
-	Catalog *models.Catalog
-	Creds   *credentials.Service
-	Tools   *tools.Registry
-	Skills  *skills.Registry
-	MCP     *mcp.Manager
-	Tasks   *tasks.Service
-	Bus     *Bus
-	Log     *slog.Logger
+	Cfg      *config.Config
+	Store    *store.Store
+	LLMs     *llm.Registry
+	Catalog  *models.Catalog
+	Creds    *credentials.Service
+	Tools    *tools.Registry
+	Skills   *skills.Registry
+	MCP      *mcp.Manager
+	Projects *projects.Service
+	Tasks    *tasks.Service
+	Bus      *Bus
+	Log      *slog.Logger
 
 	gate      *policy.Gate
 	started   time.Time
@@ -107,7 +109,8 @@ func New(ctx context.Context, o Options) (*Engine, error) {
 	e := &Engine{
 		Cfg: o.Config, Store: o.Store, LLMs: o.LLMs, Catalog: cat,
 		Creds: credentials.New(o.Store, o.Secrets, o.LLMs), Tools: reg, Skills: sk, MCP: mcpm,
-		Bus: NewBus(), Log: o.Logger,
+		Projects: projects.New(o.Store, o.Config),
+		Bus:      NewBus(), Log: o.Logger,
 		gate: policy.New(o.Config.Policy), started: time.Now(), baseCtx: base, cancelAll: cancel,
 		activeTurns: map[string]*activeTurn{}, threadTurns: map[string]string{},
 		approvals: map[string]chan bool{}, budgetWarned: map[string]string{},
@@ -192,7 +195,18 @@ func (e *Engine) StartThread(ctx context.Context, p protocol.ThreadStartParams) 
 		return protocol.Thread{}, err
 	}
 	p.Settings.Provider = config.NormalizeProvider(p.Settings.Provider)
-	return e.Store.CreateThread(ctx, protocol.Thread{Title: strings.TrimSpace(p.Title), Channel: p.Channel, Settings: p.Settings})
+	if p.ProjectID != "" {
+		proj, err := e.Projects.Get(ctx, p.ProjectID)
+		if err != nil {
+			return protocol.Thread{}, protocol.Errorf(protocol.CodeInvalidParams, "project %s: %v", p.ProjectID, err)
+		}
+		if proj.Missing {
+			return protocol.Thread{}, protocol.Errorf(protocol.CodeInvalidParams, "the folder of project %s (%s) is gone", proj.Name, proj.Root)
+		}
+		_ = e.Store.TouchProject(ctx, proj.ID)
+	}
+	return e.Store.CreateThread(ctx, protocol.Thread{Title: strings.TrimSpace(p.Title), ProjectID: p.ProjectID,
+		Channel: p.Channel, Settings: p.Settings})
 }
 
 // ReadThread returns a thread with its turns and items.
@@ -495,7 +509,7 @@ func validateSelection(s protocol.ModelSelection) error {
 
 // systemPrompt builds the system prompt from the built-in instructions, the
 // skills catalog and AGENT.md. userText is used to point at a matching skill.
-func (e *Engine) systemPrompt(userText string) string {
+func (e *Engine) systemPrompt(ctx context.Context, userText string, proj *protocol.Project) string {
 	var b strings.Builder
 	b.WriteString("You are UFoundry, a personal AI assistant running on the user's own computer. ")
 	b.WriteString("Be direct and concise. Use tools when they help; never invent tool results. ")
@@ -507,6 +521,19 @@ func (e *Engine) systemPrompt(userText string) string {
 			b.WriteString(fmt.Sprintf("The current request may match the %q skill; read its instructions before acting.\n", sk.Name))
 		}
 	}
+	if proj != nil {
+		fmt.Fprintf(&b, "\nYou are working in the project %q at %s. Every file you read or change must be inside that folder; "+
+			"paths outside it are refused, and shell commands run there. Refer to files by their path relative to the project root.\n",
+			proj.Name, proj.Root)
+		if proj.VCS != nil && proj.VCS.Branch != "" {
+			fmt.Fprintf(&b, "It is a git checkout on branch %s with %d changed files.\n", proj.VCS.Branch, proj.VCS.Dirty)
+		}
+		instructions, _ := e.Projects.InstructionsFor(ctx, *proj, "")
+		b.WriteString(instructions)
+		return b.String()
+	}
+	b.WriteString("\nThis chat is not attached to a project, so you can read and answer but not change files or run commands. " +
+		"If the user asks for work on files, ask them to open a project first.\n")
 	ctxFile := e.Cfg.Agents.ContextFile
 	if ctxFile == "" {
 		ctxFile = filepath.Join(e.Cfg.Home, "AGENT.md")

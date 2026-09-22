@@ -63,7 +63,14 @@ func runThread(args []string) error {
 		if err := call(protocol.MethodThreadRead, protocol.ThreadIDParams{ThreadID: rest[0]}, &r); err != nil {
 			return err
 		}
-		fmt.Printf("%s%s%s  %s(%s)%s\n\n", bold, r.Thread.Title, reset, dim, r.Thread.ID, reset)
+		fmt.Printf("%s%s%s  %s(%s)%s\n", bold, r.Thread.Title, reset, dim, r.Thread.ID, reset)
+		if r.Thread.ProjectID != "" {
+			var p protocol.Project
+			if call(protocol.MethodProjectOpen, protocol.ProjectIDParams{ProjectID: r.Thread.ProjectID}, &p) == nil {
+				fmt.Printf("%sproject %s (%s)%s\n", dim, p.Name, home(p.Root), reset)
+			}
+		}
+		fmt.Println()
 		for _, it := range r.Items {
 			switch it.Kind {
 			case protocol.ItemUserMessage:
@@ -72,6 +79,8 @@ func runThread(args []string) error {
 				fmt.Printf("%sUFoundry:%s %s\n\n", bold, reset, it.Text)
 			case protocol.ItemToolCall:
 				fmt.Printf("%s→ %s %s (%s)%s\n", dim, it.Tool.Name, compactJSON(it.Tool.Args), it.Status, reset)
+			case protocol.ItemFileChange:
+				fmt.Printf("%s✎ %s%s\n", dim, it.Text, reset)
 			case protocol.ItemError:
 				fmt.Printf("%s%s%s\n", red, it.Text, reset)
 			}

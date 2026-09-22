@@ -26,6 +26,7 @@ const (
 func runChat(args []string) error {
 	fs := flag.NewFlagSet("chat", flag.ExitOnError)
 	threadID := fs.String("t", "", "thread id to continue")
+	project := fs.String("project", "", "project id to work in (see `ufoundry project list`)")
 	provider := fs.String("p", "", "provider")
 	model := fs.String("m", "", "model")
 	cplx := fs.String("c", "", "complexity: auto|quick|standard|deep")
@@ -44,7 +45,8 @@ func runChat(args []string) error {
 	tid := *threadID
 	if tid == "" {
 		var th protocol.Thread
-		if err := c.Call(ctx, protocol.MethodThreadStart, protocol.ThreadStartParams{Channel: "cli", Settings: override}, &th); err != nil {
+		if err := c.Call(ctx, protocol.MethodThreadStart, protocol.ThreadStartParams{Channel: "cli",
+			ProjectID: *project, Settings: override}, &th); err != nil {
 			return err
 		}
 		tid = th.ID
@@ -119,6 +121,14 @@ func chatTurn(ctx context.Context, c *client.Client, in *bufio.Reader, threadID,
 						fmt.Printf("%s→ %s %s [%s]%s\n", dim, it.Tool.Name, compactJSON(it.Tool.Args), it.Tool.Risk, reset)
 					} else {
 						renderToolResult(it)
+					}
+				case protocol.ItemFileChange:
+					if lastWasText {
+						fmt.Println()
+						lastWasText = false
+					}
+					if n.Method == protocol.NotifyItemCompleted {
+						fmt.Printf("%s✎ %s%s\n", dim, it.Text, reset)
 					}
 				case protocol.ItemError:
 					fmt.Printf("%s%s%s\n", red, it.Text, reset)

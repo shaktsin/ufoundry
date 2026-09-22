@@ -12,13 +12,13 @@ import (
 	"github.com/shaktsin/ufoundry/internal/protocol"
 )
 
-const threadCols = `id, title, channel, pinned, archived, provider, model, complexity, credential_id, forked_from, created_at, updated_at`
+const threadCols = `id, title, project_id, channel, pinned, archived, provider, model, complexity, credential_id, forked_from, created_at, updated_at`
 
 func scanThread(sc interface{ Scan(...any) error }) (protocol.Thread, error) {
 	var t protocol.Thread
 	var pinned, archived int
 	var complexity, created, updated string
-	err := sc.Scan(&t.ID, &t.Title, &t.Channel, &pinned, &archived,
+	err := sc.Scan(&t.ID, &t.Title, &t.ProjectID, &t.Channel, &pinned, &archived,
 		&t.Settings.Provider, &t.Settings.Model, &complexity, &t.Settings.CredentialID,
 		&t.ForkedFrom, &created, &updated)
 	if err != nil {
@@ -40,8 +40,8 @@ func (s *Store) CreateThread(ctx context.Context, t protocol.Thread) (protocol.T
 	}
 	now := time.Now().UTC()
 	t.CreatedAt, t.UpdatedAt = now, now
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO threads (`+threadCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.Title, t.Channel, b2i(t.Pinned), b2i(t.Archived),
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO threads (`+threadCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.Title, t.ProjectID, t.Channel, b2i(t.Pinned), b2i(t.Archived),
 		t.Settings.Provider, t.Settings.Model, string(t.Settings.Complexity), t.Settings.CredentialID,
 		t.ForkedFrom, FormatTime(now), FormatTime(now))
 	return t, err
@@ -77,6 +77,10 @@ func (s *Store) ListThreads(ctx context.Context, p protocol.ThreadListParams) ([
 	if p.Channel != "" {
 		where = append(where, "channel = ?")
 		args = append(args, p.Channel)
+	}
+	if p.ProjectID != "" {
+		where = append(where, "project_id = ?")
+		args = append(args, p.ProjectID)
 	}
 	if p.Before != "" {
 		where = append(where, "updated_at < ? AND pinned = 0")

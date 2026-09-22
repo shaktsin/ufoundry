@@ -113,6 +113,42 @@ func (s *Server) routes() map[string]handler {
 			return e.SetThreadSettings(ctx, p)
 		}),
 
+		// projects
+		protocol.MethodProjectList: bind(func(ctx context.Context, c *conn, p protocol.ProjectListParams) (any, error) {
+			list, err := e.Projects.List(ctx, p.IncludeArchived)
+			if list == nil {
+				list = []protocol.Project{}
+			}
+			return protocol.ProjectListResult{Projects: list}, err
+		}),
+		protocol.MethodProjectCreate: bind(func(ctx context.Context, c *conn, p protocol.ProjectCreateParams) (any, error) {
+			return e.CreateProject(ctx, p)
+		}),
+		protocol.MethodProjectOpen: bind(func(ctx context.Context, c *conn, p protocol.ProjectIDParams) (any, error) {
+			return e.OpenProject(ctx, p.ProjectID)
+		}),
+		protocol.MethodProjectUpdate: bind(func(ctx context.Context, c *conn, p protocol.ProjectUpdateParams) (any, error) {
+			return e.UpdateProject(ctx, p)
+		}),
+		protocol.MethodProjectDelete: bind(func(ctx context.Context, c *conn, p protocol.ProjectIDParams) (any, error) {
+			return okResult{true}, e.DeleteProject(ctx, p.ProjectID)
+		}),
+		protocol.MethodProjectInstructions: bind(func(ctx context.Context, c *conn, p protocol.ProjectInstructionsParams) (any, error) {
+			return e.ProjectInstructions(ctx, p)
+		}),
+		protocol.MethodProjectFiles: bind(func(ctx context.Context, c *conn, p protocol.ProjectFilesParams) (any, error) {
+			return e.ProjectFiles(ctx, p)
+		}),
+		protocol.MethodProjectReadFile: bind(func(ctx context.Context, c *conn, p protocol.ProjectReadFileParams) (any, error) {
+			return e.ProjectReadFile(ctx, p)
+		}),
+		protocol.MethodProjectDiff: bind(func(ctx context.Context, c *conn, p protocol.ProjectDiffParams) (any, error) {
+			return e.ProjectDiff(ctx, p)
+		}),
+		protocol.MethodProjectRevertTurn: bind(func(ctx context.Context, c *conn, p protocol.ProjectRevertTurnParams) (any, error) {
+			return e.RevertTurn(ctx, p)
+		}),
+
 		// turns
 		protocol.MethodTurnStart: bind(func(ctx context.Context, c *conn, p protocol.TurnStartParams) (any, error) {
 			c.follow(p.ThreadID)
@@ -135,7 +171,7 @@ func (s *Server) routes() map[string]handler {
 			if !c.IsAdmin() {
 				return nil, protocol.Errorf(protocol.CodeInvalidRequest, "only admin clients can answer approvals")
 			}
-			return e.RespondApproval(ctx, p.ApprovalID, p.Approve, c.id)
+			return e.RespondApproval(ctx, p.ApprovalID, p.Approve, p.Remember, c.id)
 		}),
 
 		// providers and models

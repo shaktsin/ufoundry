@@ -231,6 +231,35 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 		e.finishTurn(sctx, th, turn, err, release)
 		return
 	}
+
+	// The project is the sandbox for this turn: file and shell tools resolve
+	// paths against its root, and every write becomes a fileChange item.
+	var proj *protocol.Project
+	if th.ProjectID != "" {
+		p, err := e.Projects.Get(sctx, th.ProjectID)
+		if err != nil {
+			e.finishTurn(sctx, th, turn, fmt.Errorf("project %s could not be opened: %w", th.ProjectID, err), release)
+			return
+		}
+		if p.Missing {
+			e.finishTurn(sctx, th, turn, fmt.Errorf("the folder of project %s (%s) is gone", p.Name, p.Root), release)
+			return
+		}
+		proj = &p
+		rec := e.Projects.NewRecorder(p, th.ID, turn.ID, func(c protocol.FileChangeData) {
+			e.publishFileChange(sctx, turn, c)
+		})
+		scope := &tools.Scope{
+			ProjectID: p.ID, ProjectName: p.Name, Root: p.Root,
+			AllowShell: boolOr(p.Tools.Shell, e.Cfg.Tools.ShellEnabled),
+			AllowNet:   boolOr(p.Tools.Network, false),
+			Record: func(c context.Context, abs string, before *string, deleted bool) {
+				rec.Record(sctx, abs, before, deleted)
+			},
+		}
+		ctx = tools.WithScope(ctx, scope)
+		sctx = tools.WithScope(sctx, scope)
+	}
 	user := llm.Message{Role: llm.RoleUser}
 	if p.Text != "" {
 		user.Parts = append(user.Parts, llm.Part{Type: "text", Text: p.Text})
@@ -245,11 +274,14 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 	var specs []llm.ToolSpec
 	if res.meta.Tools {
 		for _, t := range e.Tools.All() {
+			if !toolAllowed(t.Name(), proj) {
+				continue
+			}
 			specs = append(specs, llm.ToolSpec{Name: tools.ToWire(t.Name()), Description: t.Description(), Schema: t.Schema()})
 		}
 	}
 	req := llm.Request{
-		Model: res.sel.Model, System: e.systemPrompt(p.Text), Tools: specs, MaxTokens: res.preset.MaxOutputTokens,
+		Model: res.sel.Model, System: e.systemPrompt(sctx, p.Text, proj), Tools: specs, MaxTokens: res.preset.MaxOutputTokens,
 	}
 	if res.meta.Reasoning && res.preset.Reasoning != llm.ReasoningOff {
 		req.Reasoning, req.ReasoningStyle = res.preset.Reasoning, res.meta.ReasoningStyle
@@ -604,6 +636,10 @@ func (e *Engine) history(ctx context.Context, threadID, currentTurn string) ([]l
 				note := fmt.Sprintf("[earlier tool call %s: %s]", it.Tool.Name, it.Status)
 				msgs = appendText(msgs, llm.RoleAssistant, note)
 			}
+		case protocol.ItemFileChange:
+			if it.Text != "" {
+				msgs = appendText(msgs, llm.RoleAssistant, "["+it.Text+"]")
+			}
 		}
 	}
 	// Providers need the history to start with a user message.
@@ -631,4 +667,48 @@ func appendText(msgs []llm.Message, role llm.Role, text string) []llm.Message {
 		return msgs
 	}
 	return append(msgs, llm.Text(role, text))
+}
+
+// boolOr returns *p when set, else def.
+func boolOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
+// publishFileChange records one edit as a fileChange item in the turn.
+func (e *Engine) publishFileChange(ctx context.Context, turn protocol.Turn, c protocol.FileChangeData) {
+	it, err := e.newItem(ctx, turn, protocol.ItemFileChange)
+	if err != nil {
+		return
+	}
+	it.Status = protocol.ItemCompleted
+	verb := map[string]string{
+		protocol.FileCreated: "Created", protocol.FileModified: "Edited", protocol.FileDeleted: "Deleted",
+	}[c.Action]
+	it.Text = fmt.Sprintf("%s %s (+%d −%d)", verb, c.Path, c.Additions, c.Deletions)
+	it.Data, _ = json.Marshal(c)
+	_ = e.saveAndPublish(ctx, it, protocol.NotifyItemCompleted)
+}
+
+// toolAllowed applies a project's tool settings: shell can be switched off,
+// and the MCP servers a project may use can be limited to a list.
+func toolAllowed(name string, proj *protocol.Project) bool {
+	if proj == nil {
+		return true
+	}
+	if strings.HasPrefix(name, "shell.") && !boolOr(proj.Tools.Shell, true) {
+		return false
+	}
+	if proj.Tools.MCPServers == nil || !strings.HasPrefix(name, "mcp_") {
+		return true
+	}
+	server := strings.SplitN(strings.TrimPrefix(name, "mcp_"), "_", 2)[0]
+	for _, allowed := range proj.Tools.MCPServers {
+		if allowed == server {
+			return true
+		}
+	}
+	return false
 }

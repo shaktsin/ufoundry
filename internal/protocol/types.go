@@ -35,8 +35,11 @@ type ModelSelection struct {
 
 // Thread is a durable conversation.
 type Thread struct {
-	ID         string         `json:"id"`
-	Title      string         `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// ProjectID is the project this chat works in; empty means no project,
+	// which makes the chat read-only for file and shell tools.
+	ProjectID  string         `json:"projectId,omitempty"`
 	Channel    string         `json:"channel"`
 	Pinned     bool           `json:"pinned"`
 	Archived   bool           `json:"archived"`
@@ -77,6 +80,7 @@ const (
 	ItemToolCall     = "toolCall"
 	ItemInboundEvent = "inboundEvent"
 	ItemApproval     = "approval"
+	ItemFileChange   = "fileChange"
 	ItemError        = "error"
 )
 

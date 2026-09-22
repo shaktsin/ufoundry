@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -63,6 +64,18 @@ func (f *fakeProvider) ListModels(ctx context.Context, cred llm.Credential) ([]s
 	return []string{"fake-large", "fake-small"}, nil
 }
 
+// lastSystem returns the system prompt of the most recent call.
+func (f *fakeProvider) lastSystem() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.calls) - 1; i >= 0; i-- {
+		if f.calls[i].System != "" {
+			return f.calls[i].System
+		}
+	}
+	return ""
+}
+
 func (f *fakeProvider) push(s ...func(llm.Request, string) ([]llm.Event, error)) {
 	f.mu.Lock()
 	f.scripts = append(f.scripts, s...)
@@ -95,6 +108,7 @@ type harness struct {
 	c    *client.Client
 	ctx  context.Context
 	ws   string
+	proj protocol.Project
 }
 
 func newHarness(t *testing.T, mutate func(*config.Config)) *harness {
@@ -104,7 +118,9 @@ func newHarness(t *testing.T, mutate func(*config.Config)) *harness {
 	cfg := config.Default(dir)
 	cfg.Tools.ShellEnabled = true
 	cfg.Runtime.SocketPath = filepath.Join(dir, "e.sock")
-	cfg.Tools.Workspaces = []config.WorkspaceConfig{{Name: "w", Path: filepath.Join(dir, "ws"), Default: true}}
+	// The project folder lives outside the engine's own data folder, as it does in real use.
+	wsDir := t.TempDir()
+	cfg.Tools.Workspaces = []config.WorkspaceConfig{{Name: "w", Path: wsDir, Default: true}}
 	if mutate != nil {
 		mutate(cfg)
 	}
@@ -139,8 +155,17 @@ func newHarness(t *testing.T, mutate func(*config.Config)) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })
-	return &harness{t: t, fake: fake, eng: eng, c: c, ctx: ctx, ws: filepath.Join(dir, "ws")}
+	h := &harness{t: t, fake: fake, eng: eng, c: c, ctx: ctx, ws: wsDir}
+	// Chats work inside a project: the workspace folder is the sandbox.
+	if err := os.MkdirAll(h.ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.call(protocol.MethodProjectCreate, protocol.ProjectCreateParams{Root: h.ws, Name: "demo",
+		Tools: protocol.ProjectTools{Shell: boolPtr(true)}}, &h.proj)
+	return h
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 func (h *harness) call(method string, params, out any) {
 	h.t.Helper()
@@ -204,7 +229,7 @@ func TestChatWithApprovedShellTool(t *testing.T) {
 	h.fake.push(toolReply("shell__run", `{"command":"echo hello-from-shell"}`), textReply("The command printed hello."))
 
 	var th protocol.Thread
-	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{}, &th)
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID}, &th)
 	var res protocol.TurnStartResult
 	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "run echo please",
 		Override: protocol.ModelSelection{Model: "claude-sonnet-4-6", Complexity: protocol.ComplexityDeep}}, &res)
@@ -283,7 +308,7 @@ func TestDeniedToolAndHistory(t *testing.T) {
 	h.addKey("claude", "k", "sk-1")
 	h.fake.push(toolReply("shell__run", `{"command":"rm -rf /tmp/x"}`), textReply("Okay, I will not."))
 	var th protocol.Thread
-	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{Title: "cleanup"}, &th)
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "cleanup"}, &th)
 	var res protocol.TurnStartResult
 	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "delete it"}, &res)
 	turn, _, tools := h.waitTurn(res.Turn.ID, func(protocol.Approval) bool { return false })
@@ -317,7 +342,7 @@ func TestBudgetHardStopAndFallback(t *testing.T) {
 		return nil, &llm.Error{Provider: "claude", Status: 429, Body: "rate limited"}
 	}, textReply("from backup"))
 	var th protocol.Thread
-	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{Title: "x"}, &th)
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "x"}, &th)
 	var res protocol.TurnStartResult
 	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "hello there friend"}, &res)
 	turn, text, _ := h.waitTurn(res.Turn.ID, nil)
@@ -354,8 +379,8 @@ func TestThreadManagementAndModels(t *testing.T) {
 	h := newHarness(t, nil)
 	k := h.addKey("claude", "k", "sk-xyz9")
 	var a, b protocol.Thread
-	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{Title: "alpha"}, &a)
-	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{Title: "beta"}, &b)
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "alpha"}, &a)
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "beta"}, &b)
 	h.call(protocol.MethodThreadPin, protocol.ThreadFlagParams{ThreadID: a.ID, Value: true}, nil)
 	h.call(protocol.MethodThreadArchive, protocol.ThreadFlagParams{ThreadID: b.ID, Value: true}, nil)
 	var list protocol.ThreadListResult
@@ -407,19 +432,158 @@ func TestThreadManagementAndModels(t *testing.T) {
 	}
 }
 
-func TestWorkspaceContainment(t *testing.T) {
+func TestProjectContainment(t *testing.T) {
 	h := newHarness(t, nil)
 	h.addKey("claude", "k", "sk-1")
 	outside := filepath.Join(t.TempDir(), "secret.txt")
 	os.WriteFile(outside, []byte("top secret"), 0o600)
 	h.fake.push(toolReply("file__read", `{"path":"`+outside+`"}`), textReply("could not read it"))
 	var th protocol.Thread
-	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{Title: "x"}, &th)
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "x"}, &th)
 	var res protocol.TurnStartResult
 	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "read that file for me please"}, &res)
 	_, _, tools := h.waitTurn(res.Turn.ID, nil)
-	if len(tools) != 1 || tools[0].Status != protocol.ItemFailed || !strings.Contains(tools[0].Tool.Error, "outside workspace") {
+	if len(tools) != 1 || tools[0].Status != protocol.ItemFailed || !strings.Contains(tools[0].Tool.Error, "outside the project") {
 		t.Fatalf("tools = %+v", tools)
+	}
+}
+
+// A chat with a project: edits land inside it, show up as fileChange items with
+// a diff, and can be undone. AGENT.md in the project reaches the system prompt.
+func TestProjectEditsDiffAndRevert(t *testing.T) {
+	h := newHarness(t, nil)
+	h.addKey("claude", "k", "sk-1")
+	if err := os.WriteFile(filepath.Join(h.ws, "notes.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.ws, "AGENT.md"), []byte("Always answer in haiku."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.fake.push(
+		toolReply("file__write", `{"path":"notes.txt","content":"one\ntwo\nthree\n"}`),
+		textReply("Added a line."),
+	)
+	var th protocol.Thread
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "edit"}, &th)
+	if th.ProjectID != h.proj.ID {
+		t.Fatalf("thread project = %q", th.ProjectID)
+	}
+	var res protocol.TurnStartResult
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "add a third line"}, &res)
+	turn, _, _ := h.waitTurn(res.Turn.ID, nil)
+	if turn.Status != protocol.TurnCompleted {
+		t.Fatalf("turn = %+v", turn)
+	}
+	if data, _ := os.ReadFile(filepath.Join(h.ws, "notes.txt")); string(data) != "one\ntwo\nthree\n" {
+		t.Fatalf("file on disk = %q", data)
+	}
+	// The project's AGENT.md is part of the prompt the model saw.
+	if sys := h.fake.lastSystem(); !strings.Contains(sys, "Always answer in haiku.") || !strings.Contains(sys, h.ws) {
+		t.Fatalf("system prompt = %q", sys)
+	}
+	// The edit is an item in the chat, with a diff.
+	var read protocol.ThreadReadResult
+	h.call(protocol.MethodThreadRead, protocol.ThreadIDParams{ThreadID: th.ID}, &read)
+	var change protocol.FileChangeData
+	found := false
+	for _, it := range read.Items {
+		if it.Kind == protocol.ItemFileChange {
+			json.Unmarshal(it.Data, &change)
+			found = true
+		}
+	}
+	if !found || change.Path != "notes.txt" || change.Additions != 1 || !strings.Contains(change.Diff, "+three") {
+		t.Fatalf("fileChange = %+v (found %v)", change, found)
+	}
+	// project/diff reports the same change…
+	var diff protocol.ProjectDiffResult
+	h.call(protocol.MethodProjectDiff, protocol.ProjectDiffParams{ProjectID: h.proj.ID, TurnID: turn.ID}, &diff)
+	if len(diff.Files) != 1 || diff.Files[0].Path != "notes.txt" {
+		t.Fatalf("diff = %+v", diff)
+	}
+	// …and reverting the turn puts the file back.
+	var rev protocol.ProjectRevertTurnResult
+	h.call(protocol.MethodProjectRevertTurn, protocol.ProjectRevertTurnParams{TurnID: turn.ID}, &rev)
+	if len(rev.Reverted) != 1 {
+		t.Fatalf("revert = %+v", rev)
+	}
+	if data, _ := os.ReadFile(filepath.Join(h.ws, "notes.txt")); string(data) != "one\ntwo\n" {
+		t.Fatalf("after revert = %q", data)
+	}
+}
+
+// Without a project a chat can read and answer, but not change anything.
+func TestChatWithoutProjectIsReadOnly(t *testing.T) {
+	h := newHarness(t, nil)
+	h.addKey("claude", "k", "sk-1")
+	h.fake.push(toolReply("file__write", `{"path":"x.txt","content":"nope"}`), textReply("I cannot write without a project."))
+	var th protocol.Thread
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{Title: "loose"}, &th)
+	var res protocol.TurnStartResult
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "write a file"}, &res)
+	_, _, tools := h.waitTurn(res.Turn.ID, nil)
+	if len(tools) != 1 || !strings.Contains(tools[0].Tool.Error, "no project") {
+		t.Fatalf("tools = %+v", tools)
+	}
+}
+
+func TestProjectMethods(t *testing.T) {
+	h := newHarness(t, nil)
+	// Listing, opening and instructions.
+	var list protocol.ProjectListResult
+	h.call(protocol.MethodProjectList, protocol.ProjectListParams{}, &list)
+	if len(list.Projects) != 1 || list.Projects[0].Root != h.ws {
+		t.Fatalf("projects = %+v", list.Projects)
+	}
+	var ins protocol.ProjectInstructionsResult
+	text := "Run the tests with `make test`."
+	h.call(protocol.MethodProjectInstructions, protocol.ProjectInstructionsParams{ProjectID: h.proj.ID, Content: &text}, &ins)
+	if ins.Path != filepath.Join(h.ws, "AGENT.md") || !strings.Contains(ins.Composed, "make test") {
+		t.Fatalf("instructions = %+v", ins)
+	}
+	// A repo written for Codex or Claude Code works unchanged.
+	os.Remove(filepath.Join(h.ws, "AGENT.md"))
+	os.WriteFile(filepath.Join(h.ws, "CLAUDE.md"), []byte("Prefer small commits."), 0o644)
+	h.call(protocol.MethodProjectInstructions, protocol.ProjectInstructionsParams{ProjectID: h.proj.ID}, &ins)
+	if !strings.Contains(ins.Composed, "Prefer small commits.") {
+		t.Fatalf("CLAUDE.md fallback: %+v", ins)
+	}
+	// Files and reads are scoped to the project.
+	os.MkdirAll(filepath.Join(h.ws, "src"), 0o755)
+	os.WriteFile(filepath.Join(h.ws, "src", "main.go"), []byte("package main\n"), 0o644)
+	var files protocol.ProjectFilesResult
+	h.call(protocol.MethodProjectFiles, protocol.ProjectFilesParams{ProjectID: h.proj.ID, Depth: 2}, &files)
+	var paths []string
+	for _, e := range files.Entries {
+		paths = append(paths, e.Path)
+	}
+	if !slices.Contains(paths, "src/main.go") {
+		t.Fatalf("files = %v", paths)
+	}
+	var file protocol.ProjectReadFileResult
+	h.call(protocol.MethodProjectReadFile, protocol.ProjectReadFileParams{ProjectID: h.proj.ID, Path: "src/main.go"}, &file)
+	if file.Content != "package main\n" {
+		t.Fatalf("read = %+v", file)
+	}
+	if err := h.c.Call(h.ctx, protocol.MethodProjectReadFile,
+		protocol.ProjectReadFileParams{ProjectID: h.proj.ID, Path: "../escape.txt"}, &file); err == nil {
+		t.Fatal("read outside the project was allowed")
+	}
+	// Renaming and archiving.
+	name := "renamed"
+	var updated protocol.Project
+	h.call(protocol.MethodProjectUpdate, protocol.ProjectUpdateParams{ProjectID: h.proj.ID, Name: &name}, &updated)
+	if updated.Name != "renamed" {
+		t.Fatalf("update = %+v", updated)
+	}
+	// A folder can only be a project once.
+	if err := h.c.Call(h.ctx, protocol.MethodProjectCreate, protocol.ProjectCreateParams{Root: h.ws}, nil); err == nil {
+		t.Fatal("duplicate project was allowed")
+	}
+	h.call(protocol.MethodProjectDelete, protocol.ProjectIDParams{ProjectID: h.proj.ID}, nil)
+	h.call(protocol.MethodProjectList, protocol.ProjectListParams{}, &list)
+	if len(list.Projects) != 0 {
+		t.Fatalf("after delete: %+v", list.Projects)
 	}
 }
 
@@ -583,7 +747,7 @@ func TestAgentUsesSkillAndCreatesTask(t *testing.T) {
 		textReply("Greeted Ada and scheduled standup."),
 	)
 	var th protocol.Thread
-	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{Title: "x"}, &th)
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "x"}, &th)
 	var res protocol.TurnStartResult
 	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "please greet Ada by name and schedule standup"}, &res)
 	turn, _, tools := h.waitTurn(res.Turn.ID, nil)

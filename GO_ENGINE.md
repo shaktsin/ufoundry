@@ -2,7 +2,7 @@
 
 The Go engine is the new core of UFoundry: one binary (`ufoundry`) that is both the always-on engine and the CLI. The Mac app and other clients talk to it through the engine protocol described below. It runs alongside the Python app during the migration and shares its `~/.ufoundry` folder and SQLite database.
 
-Status: milestones M0–M3 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407) (engine, agent loop, skills, MCP, scheduled tasks), plus the engine side of M5 (chats, models, complexity, API keys and usage). Connectors (Telegram, Gmail, Discord), Google Workspace tools and agent teams are still served by the Python app.
+Status: milestones M0–M4 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407) (engine, agent loop, skills, MCP, scheduled tasks, projects and the sandbox), plus the engine side of M6 (chats, models, complexity, API keys and usage). Connectors (Telegram, Gmail, Discord), Google Workspace tools and agent teams are still served by the Python app; the Mac app is M5.
 
 ## Quick start
 
@@ -12,17 +12,38 @@ make go-build                       # → bin/ufoundry
 ./bin/ufoundry service install      # or: start at login (launchd / systemd --user)
 
 ./bin/ufoundry key add --provider claude --label personal   # prompts for the key, then tests it
-./bin/ufoundry chat "what's in my workspace?"
-./bin/ufoundry chat                 # interactive
+./bin/ufoundry project add ~/code/my-app                    # the folder the agent may work in
+./bin/ufoundry chat --project prj_… "add a test for the parser"
+./bin/ufoundry chat                 # interactive, no project: read-only
 ```
 
 API keys go to the macOS Keychain (service `com.ufoundry`); on Linux they are kept in `~/.ufoundry/secrets.json` (mode 0600). On first start the engine imports the keys the Python app already has, for any provider with no key yet: `api_key` values in `config.yaml`, `UFOUNDRY_*`/`UMABOT_*` environment variables, `~/.ufoundry/.env`, and the Python app's Keychain entries (service `ufoundry`, or `umabot` from before the rename). You can then remove keys from `config.yaml`.
+
+## Projects
+
+A **project** is a folder the agent may work in, and it is the sandbox: `file.read`, `file.list`, `file.write` and `shell.run` resolve every path against the project root — symlinks included — and refuse anything outside it. A write outside a project fails; it is never offered as an approval. A chat without a project still answers questions, but its file and shell tools are off.
+
+Each project carries its own defaults (provider, model, complexity, key), its tool switches (`shell`, `network`) and, optionally, the MCP servers it may use. Shell commands run with the project root as the working directory and an environment with no API keys in it; with `network` off, commands that obviously reach out (`curl`, `git push`, `npm install`, …) are refused with a message rather than failing halfway.
+
+**`AGENT.md` is the project's system prompt.** Every turn composes `~/.ufoundry/AGENT.md` (your standing instructions) → the project's `AGENT.md` → the nearest `AGENT.md` in the subtree being worked on. `AGENTS.md` (Codex) and `CLAUDE.md` (Claude Code) are read as fallbacks, so a repo set up for either works unchanged. Files are re-read when they change on disk and capped at 32 KB each; `ufoundry project instructions ID --composed` prints exactly what the agent receives.
+
+Every file the agent creates, changes or deletes becomes a **`fileChange` item** in the chat with a unified diff, and is recorded with the previous content (up to 1 MB), so `ufoundry project diff` shows what a turn did and `ufoundry project revert TURN_ID` puts it back. Answering an approval with `remember: true` stores that decision for the project, so "always allow `npm test` here" stops asking.
+
+```sh
+ufoundry project add ~/code/my-app --name my-app        # register a folder
+ufoundry project show prj_…                             # folder, git branch, defaults, AGENT.md
+ufoundry project instructions prj_… -f AGENT.md         # write the project's instructions
+ufoundry project diff prj_…                             # what the agent changed
+ufoundry project revert trn_…                           # undo one turn's edits
+ufoundry project set prj_… --network on -m claude-opus-5
+```
 
 ## CLI
 
 | Command | What it does |
 | --- | --- |
-| `chat [-t THREAD] [-p PROVIDER] [-m MODEL] [-c LEVEL] [-k KEY] [MESSAGE]` | Send a message, streaming the reply. Asks `[y/N]` for approvals. No message = interactive. |
+| `chat [--project ID] [-t THREAD] [-p PROVIDER] [-m MODEL] [-c LEVEL] [-k KEY] [MESSAGE]` | Send a message, streaming the reply. Asks `[y/N]` for approvals. No message = interactive. |
+| `project list / add / show / instructions / files / diff / revert / set / archive / remove` | Projects: the folders the agent may work in. |
 | `thread list / show / search / rename / pin / unpin / archive / unarchive / delete / fork / export` | Chat history. Old Python sessions appear as threads with ids `legacy-s<N>`. |
 | `thread set ID [-p] [-m] [-c] [-k]` | Save a thread's provider, model, complexity and key. |
 | `key list / add / test / default / enable / disable / fallback / rotate / delete / budget` | API keys per provider, monthly budgets (`--hard-stop` blocks requests at 100%). |
@@ -97,14 +118,15 @@ mcp_servers:
 
 ## Protocol
 
-JSON-RPC 2.0, one message per line on the Unix socket `~/.ufoundry/run/engine.sock` (0600), or one per text frame on `ws://127.0.0.1:8766/ws` with `Authorization: Bearer <~/.ufoundry/run/token>` (or `?token=`). The token is regenerated at each engine start. Clients must call `initialize` first (`protocolVersion` major must match; `admin: true` to receive and answer approvals).
+JSON-RPC 2.0, one message per line on the Unix socket `~/.ufoundry/run/engine.sock` (0600), or one per text frame on `ws://127.0.0.1:8766/ws` with `Authorization: Bearer <~/.ufoundry/run/token>` (or `?token=`). The token is regenerated at each engine start. Browser clients may connect from the Mac app's webview (`wails://…`) or a local dev server; other origins are refused. Clients must call `initialize` first (`protocolVersion` major must match; `admin: true` to receive and answer approvals).
 
 Types are in `internal/protocol`. Methods:
 
 | Group | Methods |
 | --- | --- |
 | Session | `initialize`, `engine/status`, `events/subscribe` (`{all: true}` or `{threadIds: [...]}`) |
-| Threads | `thread/start`, `thread/list`, `thread/read`, `thread/rename`, `thread/pin`, `thread/archive`, `thread/delete`, `thread/fork`, `thread/search`, `thread/export`, `thread/setSettings` |
+| Projects | `project/list`, `project/create`, `project/open`, `project/update`, `project/delete`, `project/instructions`, `project/files`, `project/readFile`, `project/diff`, `project/revertTurn` |
+| Threads | `thread/start` (`projectId`), `thread/list`, `thread/read`, `thread/rename`, `thread/pin`, `thread/archive`, `thread/delete`, `thread/fork`, `thread/search`, `thread/export`, `thread/setSettings` |
 | Turns | `turn/start` (`text`, `attachments`, `override`), `turn/interrupt` |
 | Approvals | `approval/list`, `approval/respond` |
 | Providers, models | `provider/list`, `model/list`, `model/setHidden`, `model/setPrice`, `model/refresh` |
@@ -115,7 +137,9 @@ Types are in `internal/protocol`. Methods:
 | Skills | `skill/list`, `skill/get`, `skill/install`, `skill/remove` |
 | MCP and tools | `mcp/list`, `mcp/restart`, `tool/list` |
 
-Notifications: `turn/started`, `turn/completed` (with `usage`), `item/started`, `item/delta`, `item/completed`, `thread/updated`, `approval/request`, `approval/resolved`, `usage/budgetWarning` and `task/updated` (admin clients). A client receives thread events for threads it started, read or sent a turn to, or all threads after `events/subscribe {all: true}`.
+Item kinds are `userMessage`, `agentMessage`, `reasoning`, `toolCall`, `fileChange` (path, action, diff, counts, the turn that made it), `inboundEvent` and `error`.
+
+Notifications: `turn/started`, `turn/completed` (with `usage`), `item/started`, `item/delta`, `item/completed`, `thread/updated`, `approval/request`, `approval/resolved`, `usage/budgetWarning`, `project/updated` and `task/updated` (admin clients). A client receives thread events for threads it started, read or sent a turn to, or all threads after `events/subscribe {all: true}`.
 
 Approvals are a notification plus `approval/respond` rather than a server-to-client request: the first admin answer wins, later ones get error `-32005`, and everyone gets `approval/resolved`.
 
@@ -130,7 +154,8 @@ internal/engine/     threads, turns, agent loop, approvals, titles
 internal/llm/        Claude, OpenAI(-compatible) and Gemini streaming adapters (plain HTTP)
 internal/models/     catalog, prices, cost, complexity presets and Auto classifier
 internal/credentials/ API keys, Keychain, budgets, fallback
-internal/tools/      tool registry, built-in tools (file.read/list/write, shell.run), workspace ACL
+internal/tools/      tool registry, built-in tools (file.read/list/write, shell.run), project scope + workspace ACL
+internal/projects/   projects, the sandbox path rules, AGENT.md composition, diffs and undo
 internal/skills/     SKILL.md loader, runtimes/venvs, skill tools, install/remove
 internal/mcp/        MCP client (stdio + Streamable HTTP) and tool bridge
 internal/tasks/      schedules (incl. cron), scheduler loop, task tools

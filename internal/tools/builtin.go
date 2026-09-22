@@ -47,12 +47,34 @@ func clip(s string) string {
 	return cut + fmt.Sprintf("\n… [truncated %d bytes]", len(s)-len(cut))
 }
 
+// resolvePath resolves a tool's path argument. Inside a project every path is
+// resolved against its root; without a project the configured workspaces are
+// used, and only for reading.
+func resolvePath(ctx context.Context, ws *Workspaces, name, path string, op Operation) (string, error) {
+	if scope := ScopeFrom(ctx); scope != nil {
+		if name != "" && name != "project" {
+			return "", fmt.Errorf("this chat works in the project %s; %q is not one of its folders", scope.ProjectName, name)
+		}
+		return scope.Resolve(path)
+	}
+	if op != OpRead {
+		return "", ErrNoProject
+	}
+	w, err := ws.Get(name)
+	if err != nil {
+		return "", err
+	}
+	return w.Resolve(path, op)
+}
+
 // ---- file.read ----
 
 type fileRead struct{ ws *Workspaces }
 
-func (*fileRead) Name() string        { return "file.read" }
-func (*fileRead) Description() string { return "Read a text file inside a workspace." }
+func (*fileRead) Name() string { return "file.read" }
+func (*fileRead) Description() string {
+	return "Read a text file from the open project. Paths are relative to the project root."
+}
 func (*fileRead) Schema() json.RawMessage {
 	return schema(`{"type":"object","properties":{"path":{"type":"string","description":"File path, relative to the workspace root or absolute inside it"},"workspace":{"type":"string","description":"Workspace name; omit for the default"}},"required":["path"]}`)
 }
@@ -60,16 +82,12 @@ func (*fileRead) Assess(args json.RawMessage) (Risk, string) {
 	a, _ := decode[struct{ Path string }](args)
 	return RiskGreen, "Read " + a.Path
 }
-func (t *fileRead) Call(_ context.Context, args json.RawMessage) (string, error) {
+func (t *fileRead) Call(ctx context.Context, args json.RawMessage) (string, error) {
 	a, err := decode[struct{ Path, Workspace string }](args)
 	if err != nil {
 		return "", err
 	}
-	ws, err := t.ws.Get(a.Workspace)
-	if err != nil {
-		return "", err
-	}
-	p, err := ws.Resolve(a.Path, OpRead)
+	p, err := resolvePath(ctx, t.ws, a.Workspace, a.Path, OpRead)
 	if err != nil {
 		return "", err
 	}
@@ -87,8 +105,10 @@ func (t *fileRead) Call(_ context.Context, args json.RawMessage) (string, error)
 
 type fileList struct{ ws *Workspaces }
 
-func (*fileList) Name() string        { return "file.list" }
-func (*fileList) Description() string { return "List files in a workspace directory." }
+func (*fileList) Name() string { return "file.list" }
+func (*fileList) Description() string {
+	return "List files in a directory of the open project."
+}
 func (*fileList) Schema() json.RawMessage {
 	return schema(`{"type":"object","properties":{"path":{"type":"string","description":"Directory, relative to the workspace root; default is the root"},"workspace":{"type":"string"}}}`)
 }
@@ -96,16 +116,12 @@ func (*fileList) Assess(args json.RawMessage) (Risk, string) {
 	a, _ := decode[struct{ Path string }](args)
 	return RiskGreen, "List " + a.Path
 }
-func (t *fileList) Call(_ context.Context, args json.RawMessage) (string, error) {
+func (t *fileList) Call(ctx context.Context, args json.RawMessage) (string, error) {
 	a, err := decode[struct{ Path, Workspace string }](args)
 	if err != nil {
 		return "", err
 	}
-	ws, err := t.ws.Get(a.Workspace)
-	if err != nil {
-		return "", err
-	}
-	p, err := ws.Resolve(a.Path, OpRead)
+	p, err := resolvePath(ctx, t.ws, a.Workspace, a.Path, OpRead)
 	if err != nil {
 		return "", err
 	}
@@ -140,7 +156,7 @@ type fileWrite struct{ ws *Workspaces }
 
 func (*fileWrite) Name() string { return "file.write" }
 func (*fileWrite) Description() string {
-	return "Create or overwrite a text file inside a workspace."
+	return "Create or overwrite a text file inside the open project. The change is recorded and can be undone."
 }
 func (*fileWrite) Schema() json.RawMessage {
 	return schema(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"workspace":{"type":"string"}},"required":["path","content"]}`)
@@ -152,32 +168,34 @@ func (*fileWrite) Assess(args json.RawMessage) (Risk, string) {
 	}](args)
 	return RiskYellow, fmt.Sprintf("Write %d bytes to %s", len(a.Content), a.Path)
 }
-func (t *fileWrite) Call(_ context.Context, args json.RawMessage) (string, error) {
+func (t *fileWrite) Call(ctx context.Context, args json.RawMessage) (string, error) {
 	a, err := decode[struct{ Path, Content, Workspace string }](args)
 	if err != nil {
 		return "", err
 	}
-	ws, err := t.ws.Get(a.Workspace)
+	scope := ScopeFrom(ctx)
+	if scope == nil {
+		return "", ErrNoProject
+	}
+	p, err := resolvePath(ctx, t.ws, a.Workspace, a.Path, OpWrite)
 	if err != nil {
 		return "", err
 	}
-	op := OpCreate
-	if abs, err := ws.Resolve(a.Path, OpRead); err == nil {
-		if _, err := os.Stat(abs); err == nil {
-			op = OpWrite
-		}
-	}
-	p, err := ws.Resolve(a.Path, op)
-	if err != nil {
-		return "", err
-	}
+	before := Snapshot(p)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(p, []byte(a.Content), 0o644); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("wrote %d bytes to %s", len(a.Content), p), nil
+	if scope.Record != nil {
+		scope.Record(ctx, p, before, false)
+	}
+	what := "wrote"
+	if before == nil {
+		what = "created"
+	}
+	return fmt.Sprintf("%s %s (%d bytes)", what, scope.Rel(p), len(a.Content)), nil
 }
 
 // ---- shell.run ----
@@ -190,10 +208,10 @@ type shellRun struct {
 
 func (*shellRun) Name() string { return "shell.run" }
 func (*shellRun) Description() string {
-	return "Run a shell command (sh -c) in a workspace directory. Returns exit code, stdout and stderr."
+	return "Run a shell command (sh -c) in the open project. Returns exit code, stdout and stderr."
 }
 func (*shellRun) Schema() json.RawMessage {
-	return schema(`{"type":"object","properties":{"command":{"type":"string"},"workspace":{"type":"string"},"timeout_seconds":{"type":"integer","description":"Default 60, max 600"},"skill":{"type":"string","description":"Run with this skill's environment (its venv, PATH and env vars; SKILL_DIR is set)"}},"required":["command"]}`)
+	return schema(`{"type":"object","properties":{"command":{"type":"string"},"workspace":{"type":"string","description":"Folder inside the project to run in; default the project root"},"timeout_seconds":{"type":"integer","description":"Default 60, max 600"},"skill":{"type":"string","description":"Run with this skill's environment (its venv, PATH and env vars; SKILL_DIR is set)"}},"required":["command"]}`)
 }
 
 func (t *shellRun) Assess(args json.RawMessage) (Risk, string) {
@@ -232,13 +250,25 @@ func (t *shellRun) Call(ctx context.Context, args json.RawMessage) (string, erro
 	if strings.TrimSpace(a.Command) == "" {
 		return "", errors.New("command is empty")
 	}
-	ws, err := t.ws.Get(a.Workspace)
-	if err != nil {
-		return "", err
+	scope := ScopeFrom(ctx)
+	if scope == nil {
+		return "", ErrNoProject
 	}
-	dir, err := ws.Resolve(".", OpShell)
-	if err != nil {
-		return "", err
+	if !scope.AllowShell {
+		return "", fmt.Errorf("shell commands are switched off for the project %s", scope.ProjectName)
+	}
+	if !scope.AllowNet {
+		if prog, yes := NeedsNetwork(a.Command); yes {
+			return "", fmt.Errorf("%s needs the network, which is off for the project %s (turn it on in the project's settings)", prog, scope.ProjectName)
+		}
+	}
+	dir := scope.Root
+	if a.Workspace != "" {
+		if d, err := scope.Resolve(a.Workspace); err == nil {
+			dir = d
+		} else {
+			return "", err
+		}
 	}
 	timeout := time.Duration(a.TimeoutSeconds) * time.Second
 	if timeout <= 0 {

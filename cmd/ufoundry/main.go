@@ -45,8 +45,19 @@ Engine
   service install|uninstall|status
                                  Run the engine at login (launchd on macOS, systemd --user on Linux)
 
+Projects
+  project list [--all]           Folders the agent may work in
+  project add [PATH] [--name N] [-p P] [-m M] [-c LEVEL] [--shell=false] [--network]
+  project show ID                Folder, git state, model defaults and AGENT.md
+  project instructions ID [-f FILE|-] [--composed]
+                                 Read or write the project's AGENT.md
+  project files ID [PATH] [--depth N] | diff ID [--turn TURN] | revert TURN [PATH…]
+  project set ID [--name N] [-p P] [-m M] [-c LEVEL] [-k KEY] [--shell on|off] [--network on|off]
+  project archive ID | unarchive ID | remove ID
+
 Chat
   chat [flags] [MESSAGE]         Send a message; without MESSAGE, start an interactive session
+      --project ID  work in this project (its folder is the sandbox)
       -t THREAD   continue a thread (default: new thread)
       -p PROVIDER claude | openai | gemini | openai_compatible
       -m MODEL    model id
@@ -121,6 +132,8 @@ func main() {
 		err = runModel(rest)
 	case "complexity":
 		err = runComplexity(rest)
+	case "project", "projects":
+		err = runProject(rest)
 	case "task", "tasks":
 		err = runTask(rest)
 	case "skill", "skills":
