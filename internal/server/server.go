@@ -90,6 +90,11 @@ func (s *Server) ListenUnix(path string) error {
 	return nil
 }
 
+// AllowedOrigins are the browser origins (host patterns) that may open the
+// WebSocket, besides same-origin requests: the Mac app's webview (wails://)
+// and local dev servers. The bearer token is still required.
+var AllowedOrigins = []string{"wails", "wails.localhost", "localhost", "localhost:*", "127.0.0.1:*", "[::1]:*"}
+
 // ListenWebSocket serves the protocol on ws://host:port/ws. The bearer token is
 // written to tokenPath (0600) so local clients can read it.
 func (s *Server) ListenWebSocket(host string, port int, tokenPath string) error {
@@ -158,7 +163,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	ws, err := websocket.Accept(w, r, nil)
+	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: AllowedOrigins})
 	if err != nil {
 		return
 	}

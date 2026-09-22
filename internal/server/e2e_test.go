@@ -457,8 +457,21 @@ func TestWebSocketTransport(t *testing.T) {
 	if _, _, err := websocket.Dial(ctx, "ws://127.0.0.1:18767/ws?token=nope", nil); err == nil {
 		t.Fatal("expected unauthorized")
 	}
+	bearer := strings.TrimSpace(string(tok))
+	// Browser origins: the Mac app's webview and local dev servers are allowed; other sites are not.
+	for origin, ok := range map[string]bool{"wails://wails": true, "wails://wails.localhost": true,
+		"http://localhost:5173": true, "https://evil.example": false} {
+		c, _, err := websocket.Dial(ctx, "ws://127.0.0.1:18767/ws?token="+bearer, &websocket.DialOptions{
+			HTTPHeader: map[string][]string{"Origin": {origin}}})
+		if (err == nil) != ok {
+			t.Fatalf("origin %s: err=%v, want allowed=%v", origin, err, ok)
+		}
+		if c != nil {
+			c.CloseNow()
+		}
+	}
 	ws, _, err := websocket.Dial(ctx, "ws://127.0.0.1:18767/ws", &websocket.DialOptions{
-		HTTPHeader: map[string][]string{"Authorization": {"Bearer " + strings.TrimSpace(string(tok))}}})
+		HTTPHeader: map[string][]string{"Authorization": {"Bearer " + bearer}}})
 	if err != nil {
 		t.Fatal(err)
 	}
