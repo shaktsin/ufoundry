@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>UFoundry</string>
+    <key>CFBundleDisplayName</key>
+    <string>UFoundry</string>
+    <key>CFBundleExecutable</key>
+    <string>UFoundry</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.ufoundry.app</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__VERSION__</string>
+    <key>CFBundleVersion</key>
+    <string>__VERSION__</string>
+    <key>CFBundleIconFile</key>
+    <string>appicon.icns</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <!-- The app keeps running in the menu bar when its window is closed. -->
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHumanReadableCopyright</key>
+    <string>UFoundry</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>UFoundry uses AppleScript to install the ufoundry command-line tool.</string>
+</dict>
+</plist>

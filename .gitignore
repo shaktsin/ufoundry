@@ -246,6 +246,10 @@ CLAUDE.md
 # Go engine build output
 /bin/
 
-# Mac app build output
+# Mac app: keep its packaging scripts and embedded icons (the `build/` and
+# `*.png` rules above would otherwise hide files the build needs)
+!app/icons/*.png
+!app/build/
+!app/build/**
 app/frontend/dist/
 app/frontend/node_modules/
