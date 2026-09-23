@@ -65,7 +65,10 @@ echo "==> Bundle"
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources" "$OUT/Contents/Library/LaunchAgents"
 cp "$TMP/UFoundry" "$OUT/Contents/MacOS/UFoundry"
-cp "$TMP/ufoundry" "$OUT/Contents/MacOS/ufoundry"
+# The engine goes in Resources, not next to the app binary: the Mac's file
+# system ignores case, so Contents/MacOS/ufoundry and .../UFoundry would be the
+# same file and the engine would overwrite the app.
+cp "$TMP/ufoundry" "$OUT/Contents/Resources/ufoundry"
 sed "s/__VERSION__/${VERSION#v}/g" "$APP_DIR/build/macos/Info.plist" > "$OUT/Contents/Info.plist"
 cp "$APP_DIR/build/macos/com.ufoundry.engine.plist" "$OUT/Contents/Library/LaunchAgents/"
 printf 'APPL????' > "$OUT/Contents/PkgInfo"
@@ -80,9 +83,15 @@ if command -v iconutil >/dev/null && command -v sips >/dev/null; then
     iconutil -c icns "$ICONSET" -o "$OUT/Contents/Resources/appicon.icns"
 fi
 
+# Guard against the case-insensitivity trap coming back.
+if ! cmp -s "$TMP/UFoundry" "$OUT/Contents/MacOS/UFoundry"; then
+    echo "The app binary in the bundle is not the app; check where the engine was copied." >&2
+    exit 1
+fi
+
 echo "==> Signing"
 if [[ -n "$SIGN_ID" ]]; then
-    codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$OUT/Contents/MacOS/ufoundry"
+    codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$OUT/Contents/Resources/ufoundry"
     codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$OUT"
     echo "Signed with: $SIGN_ID"
     echo "Notarize with: xcrun notarytool submit --keychain-profile <profile> --wait <zip> && xcrun stapler staple '$OUT'"

@@ -199,6 +199,8 @@ app/                 Wails v3 shell (its own Go module; needs Go 1.25)
   watcher.go         admin connection: approval notifications, counts, projects
   engine.go          finds and supervises the engine (SMAppService or child process)
   build/macos/       Info.plist, the engine LaunchAgent, bundle.sh
+                     (the engine sits in Contents/Resources: macOS ignores
+                     case, so Contents/MacOS/ufoundry would be the app itself)
   frontend/          Svelte 5 + Vite UI (svelte-check, vitest)
 ```
 

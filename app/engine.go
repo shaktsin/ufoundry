@@ -105,6 +105,10 @@ func (m *EngineManager) setMode(mode, detail string) {
 
 // EngineBinary finds the `ufoundry` executable: inside the app bundle first,
 // then next to this executable, then on PATH.
+//
+// In the bundle it lives in Contents/Resources, not beside the app binary:
+// the Mac's file system ignores case, so Contents/MacOS/ufoundry would be the
+// same file as Contents/MacOS/UFoundry.
 func EngineBinary() (string, error) {
 	if p := os.Getenv("UFOUNDRY_ENGINE_BIN"); p != "" {
 		return p, nil
@@ -113,15 +117,35 @@ func EngineBinary() (string, error) {
 		if real, err := filepath.EvalSymlinks(exe); err == nil {
 			exe = real
 		}
-		cand := filepath.Join(filepath.Dir(exe), "ufoundry")
-		if st, err := os.Stat(cand); err == nil && !st.IsDir() && cand != exe {
-			return cand, nil
+		dir := filepath.Dir(exe)
+		for _, cand := range []string{
+			filepath.Join(dir, "..", "Resources", "ufoundry"), // inside the app bundle
+			filepath.Join(dir, "ufoundry"),                    // a plain build next to it
+		} {
+			cand = filepath.Clean(cand)
+			if st, err := os.Stat(cand); err == nil && !st.IsDir() && !sameFile(cand, exe) {
+				return cand, nil
+			}
 		}
 	}
 	if p, err := exec.LookPath("ufoundry"); err == nil {
 		return p, nil
 	}
 	return "", errors.New("the ufoundry engine binary was not found in the app bundle or on PATH")
+}
+
+// sameFile guards against a case-insensitive file system handing us the app
+// binary when we asked for the engine.
+func sameFile(a, b string) bool {
+	sa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	sb, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(sa, sb)
 }
 
 // Ensure makes sure an engine is running. Order: already running → the

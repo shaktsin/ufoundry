@@ -244,7 +244,7 @@ func cliInstalled() (string, bool) {
 		return "", false
 	}
 	bin, err := EngineBinary()
-	return cliLink, err == nil && (target == bin || strings.HasSuffix(target, "/Contents/MacOS/ufoundry"))
+	return cliLink, err == nil && (target == bin || strings.HasSuffix(target, "/Contents/Resources/ufoundry"))
 }
 
 // installCLI links /usr/local/bin/ufoundry to the engine binary inside the
