@@ -94,10 +94,13 @@ type SubscribeParams struct {
 }
 
 type ThreadStartParams struct {
-	Title     string         `json:"title,omitempty"`
-	ProjectID string         `json:"projectId,omitempty"`
-	Channel   string         `json:"channel,omitempty"`
-	Settings  ModelSelection `json:"settings,omitempty"`
+	Title     string `json:"title,omitempty"`
+	ProjectID string `json:"projectId,omitempty"`
+	// ParentThreadID marks this chat as a side chat of another one: same
+	// project, its own turns, shown beside its parent.
+	ParentThreadID string         `json:"parentThreadId,omitempty"`
+	Channel        string         `json:"channel,omitempty"`
+	Settings       ModelSelection `json:"settings,omitempty"`
 }
 
 type ThreadListParams struct {

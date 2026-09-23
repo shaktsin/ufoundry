@@ -205,8 +205,17 @@ func (e *Engine) StartThread(ctx context.Context, p protocol.ThreadStartParams) 
 		}
 		_ = e.Store.TouchProject(ctx, proj.ID)
 	}
+	if p.ParentThreadID != "" {
+		parent, err := e.Store.GetThread(ctx, p.ParentThreadID)
+		if err != nil {
+			return protocol.Thread{}, protocol.Errorf(protocol.CodeInvalidParams, "parent chat %s: %v", p.ParentThreadID, err)
+		}
+		if p.ProjectID == "" {
+			p.ProjectID = parent.ProjectID
+		}
+	}
 	return e.Store.CreateThread(ctx, protocol.Thread{Title: strings.TrimSpace(p.Title), ProjectID: p.ProjectID,
-		Channel: p.Channel, Settings: p.Settings})
+		Channel: p.Channel, Settings: p.Settings, ForkedFrom: p.ParentThreadID})
 }
 
 // ReadThread returns a thread with its turns and items.

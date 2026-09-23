@@ -245,3 +245,7 @@ CLAUDE.md
 
 # Go engine build output
 /bin/
+
+# Mac app build output
+app/frontend/dist/
+app/frontend/node_modules/

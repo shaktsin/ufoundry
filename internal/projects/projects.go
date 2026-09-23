@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/ufoundry/internal/pathutil"
 	"github.com/shaktsin/ufoundry/internal/protocol"
 	"github.com/shaktsin/ufoundry/internal/store"
 )
@@ -61,9 +62,9 @@ func (s *Service) Create(ctx context.Context, p protocol.ProjectCreateParams) (p
 	if err != nil {
 		return protocol.Project{}, err
 	}
-	if resolved, err := filepath.EvalSymlinks(root); err == nil {
-		root = resolved
-	}
+	// Store the resolved spelling, so a folder reached two ways (on macOS
+	// /var and /private/var name the same place) is one project, not two.
+	root = pathutil.Resolved(root)
 	st, err := os.Stat(root)
 	if err != nil {
 		return protocol.Project{}, fmt.Errorf("%s cannot be opened: %w", root, err)
@@ -71,11 +72,19 @@ func (s *Service) Create(ctx context.Context, p protocol.ProjectCreateParams) (p
 	if !st.IsDir() {
 		return protocol.Project{}, fmt.Errorf("%s is a file, not a folder", root)
 	}
-	if home, err := os.UserHomeDir(); err == nil && (root == home || root == "/") {
+	if home, err := os.UserHomeDir(); err == nil && (pathutil.SameFolder(root, home) || root == "/") {
 		return protocol.Project{}, fmt.Errorf("%s is too broad to be a project; pick the folder you actually work in", root)
 	}
-	if strings.HasPrefix(root+string(filepath.Separator), s.cfg.Home+string(filepath.Separator)) {
+	if pathutil.Within(s.cfg.Home, root) {
 		return protocol.Project{}, fmt.Errorf("%s is inside UFoundry's own data folder", root)
+	}
+	// A row written before this normalisation may hold the other spelling.
+	if existing, err := s.st.ListProjects(ctx, true); err == nil {
+		for _, e := range existing {
+			if pathutil.SameFolder(e.Root, root) {
+				return e, fmt.Errorf("%s is already a project (%s)", root, e.Name)
+			}
+		}
 	}
 	name := strings.TrimSpace(p.Name)
 	if name == "" {
@@ -174,53 +183,9 @@ func (s *Service) decorate(p protocol.Project) protocol.Project {
 
 // Resolve joins rel to root and refuses anything that escapes the project,
 // including through symlinks. It returns an absolute path.
-func Resolve(root, rel string) (string, error) {
-	root = filepath.Clean(root)
-	rel = strings.TrimSpace(rel)
-	if rel == "" || rel == "." {
-		return root, nil
-	}
-	if strings.HasPrefix(rel, "~") {
-		return "", fmt.Errorf("%s is outside the project", rel)
-	}
-	target := rel
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(root, target)
-	}
-	target = filepath.Clean(target)
-	if !within(root, target) {
-		return "", fmt.Errorf("%s is outside the project folder (%s)", rel, root)
-	}
-	// Resolve symlinks on the deepest part that exists, so a link cannot point out.
-	probe := target
-	for {
-		if resolved, err := filepath.EvalSymlinks(probe); err == nil {
-			if !within(root, resolved) {
-				return "", fmt.Errorf("%s resolves to %s, outside the project folder", rel, resolved)
-			}
-			break
-		}
-		parent := filepath.Dir(probe)
-		if parent == probe {
-			break
-		}
-		probe = parent
-	}
-	return target, nil
-}
+func Resolve(root, rel string) (string, error) { return pathutil.Contain(root, rel) }
 
-func within(root, target string) bool {
-	if target == root {
-		return true
-	}
-	return strings.HasPrefix(target, root+string(filepath.Separator))
-}
+func within(root, target string) bool { return pathutil.Within(root, target) }
 
 // Rel returns the slash-separated path of abs inside the project.
-func Rel(root, abs string) string {
-	rel, err := filepath.Rel(root, abs)
-	if err != nil {
-		return abs
-	}
-	return filepath.ToSlash(rel)
-}
+func Rel(root, abs string) string { return pathutil.Rel(root, abs) }

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/shaktsin/ufoundry/internal/pathutil"
 )
 
 // Scope is the project a turn is working in. It travels on the context, so
@@ -41,47 +43,15 @@ var ErrNoProject = errors.New("this chat has no project, so files cannot be chan
 // Resolve joins rel to the project root and refuses anything outside it,
 // including paths that reach out through a symlink.
 func (s *Scope) Resolve(rel string) (string, error) {
-	root := filepath.Clean(s.Root)
-	rel = strings.TrimSpace(rel)
-	if rel == "" || rel == "." {
-		return root, nil
+	abs, err := pathutil.Contain(s.Root, rel)
+	if err != nil && s.ProjectName != "" && strings.Contains(err.Error(), "outside the project folder") {
+		return "", fmt.Errorf("%s (project %s)", err, s.ProjectName)
 	}
-	if strings.HasPrefix(rel, "~") {
-		return "", fmt.Errorf("%s is outside the project %s", rel, s.ProjectName)
-	}
-	target := rel
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(root, target)
-	}
-	target = filepath.Clean(target)
-	if !contains(root, target) {
-		return "", fmt.Errorf("%s is outside the project folder %s; the agent can only read and change files inside the open project", rel, root)
-	}
-	probe := target
-	for {
-		if resolved, err := filepath.EvalSymlinks(probe); err == nil {
-			if !contains(root, resolved) {
-				return "", fmt.Errorf("%s points to %s, outside the project folder", rel, resolved)
-			}
-			break
-		}
-		parent := filepath.Dir(probe)
-		if parent == probe {
-			break
-		}
-		probe = parent
-	}
-	return target, nil
+	return abs, err
 }
 
 // Rel is the project-relative, slash-separated form of abs.
-func (s *Scope) Rel(abs string) string {
-	rel, err := filepath.Rel(s.Root, abs)
-	if err != nil {
-		return abs
-	}
-	return filepath.ToSlash(rel)
-}
+func (s *Scope) Rel(abs string) string { return pathutil.Rel(s.Root, abs) }
 
 // Snapshot reads a file so a write can be diffed and undone. It returns nil
 // when the file does not exist yet.
@@ -100,10 +70,6 @@ func Snapshot(abs string) *string {
 	}
 	s := string(data)
 	return &s
-}
-
-func contains(root, target string) bool {
-	return target == root || strings.HasPrefix(target, root+string(filepath.Separator))
 }
 
 // networkCommands are refused when a project has network access switched off.

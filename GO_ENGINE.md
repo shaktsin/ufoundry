@@ -2,7 +2,7 @@
 
 The Go engine is the new core of UFoundry: one binary (`ufoundry`) that is both the always-on engine and the CLI. The Mac app and other clients talk to it through the engine protocol described below. It runs alongside the Python app during the migration and shares its `~/.ufoundry` folder and SQLite database.
 
-Status: milestones M0–M4 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407) (engine, agent loop, skills, MCP, scheduled tasks, projects and the sandbox), plus the engine side of M6 (chats, models, complexity, API keys and usage). Connectors (Telegram, Gmail, Discord), Google Workspace tools and agent teams are still served by the Python app; the Mac app is M5.
+Status: milestones M0–M5 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407) (engine, agent loop, skills, MCP, scheduled tasks, projects and the sandbox), plus the Mac app (M5) and the engine side of M6 (chats, models, complexity, API keys and usage). Connectors (Telegram, Gmail, Discord), Google Workspace tools and agent teams are still served by the Python app.
 
 ## Quick start
 
@@ -18,6 +18,29 @@ make go-build                       # → bin/ufoundry
 ```
 
 API keys go to the macOS Keychain (service `com.ufoundry`); on Linux they are kept in `~/.ufoundry/secrets.json` (mode 0600). On first start the engine imports the keys the Python app already has, for any provider with no key yet: `api_key` values in `config.yaml`, `UFOUNDRY_*`/`UMABOT_*` environment variables, `~/.ufoundry/.env`, and the Python app's Keychain entries (service `ufoundry`, or `umabot` from before the rename). You can then remove keys from `config.yaml`.
+
+## The Mac app
+
+`UFoundry.app` is a [Wails v3](https://v3.wails.io) shell around a Svelte UI that speaks the engine protocol over the WebSocket — the same protocol the CLI uses, so the app is only a client.
+
+```sh
+make app-build            # → bin/UFoundry.app (macOS; add app-build-universal for arm64 + x86_64)
+make app-dev              # the UI in a browser against a running engine, with hot reload
+make app-check            # svelte-check + the UI's unit tests
+```
+
+The window is a rail plus up to three columns:
+
+| Column | What it holds |
+| --- | --- |
+| Rail | Project switcher, the views (chat, approvals, tasks, skills & MCP, usage, settings), and either the project's chats or its file tree |
+| 1 · Chat | The conversation: streaming replies, tool calls, file changes with inline diffs, approvals in place, and a composer with the complexity dial and model picker |
+| 2 · Side chat | “Ask about this” on any message, file or diff opens a child chat in the same project; several stack as tabs, and *Promote* hands its answer back to the main composer |
+| 3 · Inspector | A file, a diff or a long tool result, read-only, with *Undo* for a change and *Ask about this* to spin off a side chat |
+
+The shell itself does the native parts: a menu-bar item with the engine's state, the pending-approval count and the project list; approval notifications with Approve and Deny buttons; starting the engine (as a `SMAppService` login item when the app is installed, otherwise as a child process); *Open at Login*; and installing the `ufoundry` command-line tool. The UI reaches the engine through `/__ufoundry/connection`, which the shell answers with the WebSocket URL and the token from `~/.ufoundry/run/token`; `make app-dev` answers the same path from the Vite dev server, which is why the UI runs unchanged in a browser.
+
+The theme is warm rather than cold — paper and ink with one clay accent, and sage/rust diffs — and follows the system's light or dark setting.
 
 ## Projects
 
@@ -155,7 +178,8 @@ internal/llm/        Claude, OpenAI(-compatible) and Gemini streaming adapters (
 internal/models/     catalog, prices, cost, complexity presets and Auto classifier
 internal/credentials/ API keys, Keychain, budgets, fallback
 internal/tools/      tool registry, built-in tools (file.read/list/write, shell.run), project scope + workspace ACL
-internal/projects/   projects, the sandbox path rules, AGENT.md composition, diffs and undo
+internal/projects/   projects, AGENT.md composition, file trees, diffs and undo
+internal/pathutil/   the containment rule every tool shares (symlink-safe, /var vs /private/var)
 internal/skills/     SKILL.md loader, runtimes/venvs, skill tools, install/remove
 internal/mcp/        MCP client (stdio + Streamable HTTP) and tool bridge
 internal/tasks/      schedules (incl. cron), scheduler loop, task tools
@@ -164,6 +188,18 @@ internal/policy/     approval policy
 internal/store/      SQLite (pure Go, WASM build of SQLite) + migrations
 internal/config/     config.yaml loader (reads the Python app's keys)
 internal/secrets/    Keychain (macOS) / file store
+```
+
+### App layout
+
+```
+app/                 Wails v3 shell (its own Go module; needs Go 1.25)
+  main.go            window, menu bar, engine lifecycle
+  shell.go           /__ufoundry/* endpoints, tray menu, login item, CLI install
+  watcher.go         admin connection: approval notifications, counts, projects
+  engine.go          finds and supervises the engine (SMAppService or child process)
+  build/macos/       Info.plist, the engine LaunchAgent, bundle.sh
+  frontend/          Svelte 5 + Vite UI (svelte-check, vitest)
 ```
 
 ## Building without golang.org access

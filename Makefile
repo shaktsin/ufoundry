@@ -356,7 +356,7 @@ info: ## Show system paths and state
 # ---------------------------------------------------------------------------
 # Go engine (see GO_ENGINE.md)
 # ---------------------------------------------------------------------------
-.PHONY: go-build go-test go-vet go-engine go-universal
+.PHONY: go-build go-test go-vet go-engine go-universal app-dev app-check app-build app-build-universal
 
 GO         ?= go
 GO_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -377,6 +377,19 @@ go-vet: ## gofmt check + go vet
 
 go-engine: go-build ## Run the Go engine in the foreground
 	./bin/ufoundry engine
+
+app-dev: go-build ## Run the Mac app's UI in a browser against a running engine
+	@echo "$(YELLOW)Start the engine first: ./bin/ufoundry engine$(NC)"
+	cd app/frontend && npm install && npm run dev
+
+app-check: ## Type-check and test the app's UI
+	cd app/frontend && npm install && npx svelte-check && npx vitest run
+
+app-build: ## Build UFoundry.app (macOS only) → bin/UFoundry.app
+	app/build/macos/bundle.sh
+
+app-build-universal: ## Build a universal UFoundry.app (arm64 + x86_64)
+	app/build/macos/bundle.sh --universal
 
 go-universal: ## Build a universal (arm64 + x86_64) macOS binary → bin/ufoundry-darwin
 	@mkdir -p bin

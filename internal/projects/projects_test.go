@@ -234,3 +234,43 @@ func TestFilesAndRead(t *testing.T) {
 		t.Fatal("read outside the project was allowed")
 	}
 }
+
+// On macOS /var is a symlink to /private/var, so a project added by one
+// spelling must accept paths given in the other — and must not be addable twice.
+func TestProjectRootReachedThroughASymlink(t *testing.T) {
+	svc, _, _ := newService(t)
+	ctx := context.Background()
+	base := t.TempDir()
+	real := filepath.Join(base, "private", "work")
+	if err := os.MkdirAll(filepath.Join(real, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(real, "src", "main.go"), []byte("package main\n"), 0o644)
+	link := filepath.Join(base, "work")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	p, err := svc.Create(ctx, protocol.ProjectCreateParams{Root: link, Name: "work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Root != real {
+		t.Fatalf("root = %q, want the resolved %q", p.Root, real)
+	}
+	// The same folder by its other name is the same project.
+	if _, err := svc.Create(ctx, protocol.ProjectCreateParams{Root: real}); err == nil ||
+		!strings.Contains(err.Error(), "already a project") {
+		t.Fatalf("duplicate through symlink: %v", err)
+	}
+	// Both spellings resolve to files inside the project.
+	for _, path := range []string{"src/main.go", filepath.Join(link, "src", "main.go"), filepath.Join(real, "src", "main.go")} {
+		if _, err := Resolve(p.Root, path); err != nil {
+			t.Errorf("Resolve(%q) = %v, want allowed", path, err)
+		}
+	}
+	file, err := svc.ReadFile(ctx, p, protocol.ProjectReadFileParams{Path: filepath.Join(link, "src", "main.go")})
+	if err != nil || file.Path != "src/main.go" {
+		t.Fatalf("read through the symlinked path = %+v (%v)", file, err)
+	}
+}
