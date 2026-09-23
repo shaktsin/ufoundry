@@ -25,7 +25,13 @@ export async function fetchConnection(): Promise<ConnectionInfo> {
     /* not JSON */
   }
   if (!res.ok || !body.token) {
-    throw new Error(body.error || `engine connection info unavailable (HTTP ${res.status})`);
+    const err = new Error(body.error || `engine connection info unavailable (HTTP ${res.status})`) as Error & {
+      shell?: string;
+    };
+    // The shell says who it is even when it has no engine to point at, so the
+    // UI can word the message for the app rather than for a browser.
+    if (body.shell) err.shell = body.shell;
+    throw err;
   }
   return body as ConnectionInfo;
 }

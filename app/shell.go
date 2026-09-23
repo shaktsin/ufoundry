@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -37,6 +38,7 @@ type Shell struct {
 	Watcher *Watcher
 	Log     *slog.Logger
 
+	starting      atomic.Bool
 	mu            sync.Mutex
 	status        string
 	statusDetail  string
@@ -273,6 +275,24 @@ func reveal(path string) error {
 	return exec.Command("/usr/bin/open", path).Run()
 }
 
+// ensureEngine starts the engine if it is not running, at most one attempt at
+// a time.
+func (s *Shell) ensureEngine() {
+	if !s.starting.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.starting.Store(false)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if s.Engine.Reachable() {
+		return
+	}
+	if err := s.Engine.Ensure(ctx); err != nil {
+		s.Log.Warn("engine start", "err", err)
+		s.SetStatus(StatusOffline, err.Error())
+	}
+}
+
 // ---- HTTP endpoints for the UI ----
 
 // Middleware answers /__ufoundry/* inside the webview's asset server; all
@@ -300,18 +320,31 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func (s *Shell) handleConnection(w http.ResponseWriter) {
+	// Every answer says which shell this is, so the UI words itself correctly
+	// even when there is no engine to connect to yet.
+	fail := func(msg string) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg, "shell": "mac", "version": Version})
+	}
 	ep, err := s.Engine.Endpoints()
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "config: " + err.Error()})
+		fail("config: " + err.Error())
 		return
 	}
 	if ep.WSPort == 0 {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the engine WebSocket is disabled (runtime.engine_ws_port is 0 in config.yaml)"})
+		fail("the engine's WebSocket is switched off (runtime.engine_ws_port is 0 in config.yaml)")
 		return
 	}
 	tok, err := os.ReadFile(ep.TokenPath)
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the engine is not running yet"})
+		// Asking again is the user pressing "Retry now": take it as a cue to
+		// start the engine, in case the first attempt failed.
+		go s.ensureEngine()
+		mode, detail := s.Engine.Mode()
+		msg := "starting the engine…"
+		if mode == ModeStopped && detail != "" {
+			msg = "the engine could not be started: " + detail
+		}
+		fail(msg)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{

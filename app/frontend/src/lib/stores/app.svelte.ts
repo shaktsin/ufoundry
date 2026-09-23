@@ -33,9 +33,15 @@ class AppState {
   constructor() {
     this.rpc = new RpcClient(
       async () => {
-        const info = await fetchConnection();
-        this.shell = info.shell || 'browser';
-        return info;
+        try {
+          const info = await fetchConnection();
+          this.shell = info.shell || 'browser';
+          return info;
+        } catch (e) {
+          const shell = (e as { shell?: string }).shell;
+          if (shell) this.shell = shell;
+          throw e;
+        }
       },
       async (c) => {
         await c.call('initialize', {

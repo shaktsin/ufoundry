@@ -9,7 +9,7 @@
     {:else}
       <span>
         Can't reach the engine{app.connError ? `: ${app.connError}` : ''}.
-        {#if app.shell === 'mac'}The app starts it automatically; check Settings → Engine if this persists.{:else}Start it with <code class="font-mono">ufoundry engine</code>.{/if}
+        {#if app.shell === 'mac'}The app keeps trying to start it — see Settings → Engine &amp; app for what it says.{:else}Start it with <code class="font-mono">ufoundry engine</code>.{/if}
       </span>
       <button class="ml-auto btn-outline btn-sm" onclick={() => app.rpc.retry()}>Retry now</button>
     {/if}

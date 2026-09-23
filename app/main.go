@@ -107,15 +107,16 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		go func() {
-			if err := eng.Ensure(ctx); err != nil {
-				logger.Error("engine start", "err", err)
-				shell.SetStatus(StatusOffline, err.Error())
-			}
-			watcher.Run(ctx)
-		}()
-	})
+	// Start the engine and the admin connection right away, rather than from an
+	// application event: which events fire, and when, differs per platform, and
+	// a missed one would leave the app sitting there with no engine.
+	go func() {
+		if err := eng.Ensure(ctx); err != nil {
+			logger.Error("engine start", "err", err)
+			shell.SetStatus(StatusOffline, err.Error())
+		}
+		watcher.Run(ctx)
+	}()
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
