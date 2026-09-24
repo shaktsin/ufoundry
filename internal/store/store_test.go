@@ -120,3 +120,34 @@ func mustExec(t *testing.T, db *sql.DB, q string) {
 		t.Fatal(err)
 	}
 }
+
+func TestPythonTasksAreLeased(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// A row written by the Python app (its timestamp format, no Go columns set).
+	mustExec(t, s.DB, `INSERT INTO tasks (name, prompt, task_type, schedule_json, timezone, status, next_run_at, created_by, created_at, updated_at)
+		VALUES ('py', 'do it', 'periodic', '{"frequency":"daily","time":"09:00"}', 'UTC', 'active', '2026-09-18T09:00:00Z', 'web', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`)
+	now := time.Date(2026, 9, 18, 9, 0, 30, 0, time.UTC)
+	due, err := s.LeaseDueTasks(ctx, now, time.Hour, 5)
+	if err != nil || len(due) != 1 || due[0].Schedule.Time != "09:00" || due[0].NextRunAt == nil {
+		t.Fatalf("due=%+v err=%v", due, err)
+	}
+	// Leased: not returned again until the lease expires.
+	if again, _ := s.LeaseDueTasks(ctx, now, time.Hour, 5); len(again) != 0 {
+		t.Fatalf("leased twice: %+v", again)
+	}
+	run, _ := s.StartTaskRun(ctx, due[0].ID, "trn_1")
+	next := now.Add(24 * time.Hour)
+	if err := s.FinishTaskRun(ctx, run, due[0].ID, true, "ok", "", &next, false); err != nil {
+		t.Fatal(err)
+	}
+	var nextS string
+	s.DB.QueryRow(`SELECT next_run_at FROM tasks WHERE id = ?`, due[0].ID).Scan(&nextS)
+	if nextS != "2026-09-19T09:00:30.000000Z" {
+		t.Fatalf("next_run_at stored as %q", nextS)
+	}
+}

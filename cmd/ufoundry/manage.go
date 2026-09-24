@@ -63,7 +63,14 @@ func runThread(args []string) error {
 		if err := call(protocol.MethodThreadRead, protocol.ThreadIDParams{ThreadID: rest[0]}, &r); err != nil {
 			return err
 		}
-		fmt.Printf("%s%s%s  %s(%s)%s\n\n", bold, r.Thread.Title, reset, dim, r.Thread.ID, reset)
+		fmt.Printf("%s%s%s  %s(%s)%s\n", bold, r.Thread.Title, reset, dim, r.Thread.ID, reset)
+		if r.Thread.ProjectID != "" {
+			var p protocol.Project
+			if call(protocol.MethodProjectOpen, protocol.ProjectIDParams{ProjectID: r.Thread.ProjectID}, &p) == nil {
+				fmt.Printf("%sproject %s (%s)%s\n", dim, p.Name, home(p.Root), reset)
+			}
+		}
+		fmt.Println()
 		for _, it := range r.Items {
 			switch it.Kind {
 			case protocol.ItemUserMessage:
@@ -72,6 +79,8 @@ func runThread(args []string) error {
 				fmt.Printf("%sUFoundry:%s %s\n\n", bold, reset, it.Text)
 			case protocol.ItemToolCall:
 				fmt.Printf("%s→ %s %s (%s)%s\n", dim, it.Tool.Name, compactJSON(it.Tool.Args), it.Status, reset)
+			case protocol.ItemFileChange:
+				fmt.Printf("%s✎ %s%s\n", dim, it.Text, reset)
 			case protocol.ItemError:
 				fmt.Printf("%s%s%s\n", red, it.Text, reset)
 			}
@@ -390,6 +399,9 @@ func readSecret(prompt string, optional bool) (string, error) {
 
 // ---- models ----
 
+// errNothingToRoute exits non-zero after the reason has already been printed.
+var errNothingToRoute = errors.New("no model is available")
+
 func runModel(args []string) error {
 	if len(args) == 0 {
 		args = []string{"list"}
@@ -450,6 +462,125 @@ func runModel(args []string) error {
 			return errors.New("usage: ufoundry model refresh KEY_ID")
 		}
 		return testKey(rest[0])
+	case "configured":
+		var r protocol.RoutingConfig
+		if err := call(protocol.MethodRoutingGet, nil, &r); err != nil {
+			return err
+		}
+		if len(r.Models) == 0 {
+			fmt.Println("No models configured yet; every catalog model is allowed.")
+			return nil
+		}
+		w := table()
+		fmt.Fprintln(w, "ID\tNAME\tPROVIDER\tMODEL\tENABLED")
+		for _, m := range r.Models {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%v\n", m.ID, m.Name, m.Provider, m.Model, m.Enabled)
+		}
+		if err := w.Flush(); err != nil {
+			return err
+		}
+		if len(r.Pools) == 0 {
+			return nil
+		}
+		fmt.Println()
+		w = table()
+		fmt.Fprintln(w, "POOL\tNAME\tSTRATEGY\tMODELS\tDEFAULT")
+		for _, p := range r.Pools {
+			def := ""
+			if p.ID == r.DefaultPool {
+				def = "yes"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", p.ID, p.Name, p.Strategy, strings.Join(p.Models, ", "), def)
+		}
+		return w.Flush()
+	case "route":
+		fs := flag.NewFlagSet("model route", flag.ExitOnError)
+		complexity := fs.String("c", "", "quick | standard | deep")
+		provider := fs.String("p", "", "pin a provider")
+		model := fs.String("m", "", "pin a model")
+		key := fs.String("k", "", "pin an API key")
+		pool := fs.String("pool", "", "route within this pool")
+		fs.Parse(rest)
+		var r protocol.ModelRouteResult
+		if err := call(protocol.MethodModelRoute, protocol.ModelRouteParams{
+			Complexity: protocol.Complexity(*complexity), Text: strings.Join(fs.Args(), " "), Pool: *pool,
+			Override: protocol.ModelSelection{Provider: *provider, Model: *model, CredentialID: *key},
+		}, &r); err != nil {
+			return err
+		}
+		if r.Chosen == nil {
+			reason := r.Reason
+			if reason == "" {
+				reason = "no model is available"
+			}
+			fmt.Printf("Nothing can serve a message right now: %s\n", reason)
+			if len(r.Alternatives) == 0 {
+				return errNothingToRoute
+			}
+			w := table()
+			fmt.Fprintln(w, "PROVIDER\tMODEL\tKEY\tWHY NOT")
+			for _, rt := range r.Alternatives {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", rt.Provider, rt.Model, rt.CredentialL, rt.Unavailable)
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			return errNothingToRoute
+		}
+		auto := ""
+		if r.AutoPicked {
+			auto = " (picked by Auto)"
+		}
+		fmt.Printf("complexity: %s%s\n\n", r.Complexity, auto)
+		w := table()
+		fmt.Fprintln(w, "ORDER	PROVIDER	MODEL	KEY	WHY	$/M	STATUS")
+		rows := append([]protocol.RouteInfo{*r.Chosen}, r.Alternatives...)
+		for i, rt := range rows {
+			order, status := fmt.Sprintf("%d", i+1), "ready"
+			if i == 0 {
+				order = "now"
+			}
+			if rt.Unavailable != "" {
+				order, status = "-", rt.Unavailable
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.2f\t%s\n", order, rt.Provider, rt.Model,
+				rt.CredentialL, rt.Why, rt.CostPerMTok, status)
+		}
+		return w.Flush()
+	case "health":
+		fs := flag.NewFlagSet("model health", flag.ExitOnError)
+		clear := fs.Bool("clear", false, "clear the cooldown on PROVIDER MODEL KEY_ID")
+		fs.Parse(rest)
+		var p protocol.ModelHealthParams
+		if *clear {
+			if fs.NArg() < 3 {
+				return errors.New("usage: ufoundry model health -clear PROVIDER MODEL KEY_ID")
+			}
+			p.Clear = &protocol.RouteRef{Provider: fs.Arg(0), Model: fs.Arg(1), CredentialID: fs.Arg(2)}
+		}
+		var r protocol.ModelHealthResult
+		if err := call(protocol.MethodModelHealth, p, &r); err != nil {
+			return err
+		}
+		if len(r.Rows) == 0 {
+			fmt.Println("Nothing has failed yet.")
+			return nil
+		}
+		w := table()
+		fmt.Fprintln(w, "PROVIDER\tMODEL\tKEY\tOK\tERR\tLATENCY\tCOOLING DOWN\tLAST")
+		for _, row := range r.Rows {
+			cool := "-"
+			if row.CooldownEnd != nil {
+				cool = "until " + row.CooldownEnd.Local().Format("15:04:05")
+			}
+			last := row.LastStatus
+			if last == "" {
+				last = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%dms\t%s\t%s\n", row.Provider, row.Model, row.Label,
+				row.OKCount, row.ErrCount, row.LatencyMs, cool, last)
+		}
+		return w.Flush()
 	}
 	return fmt.Errorf("unknown model command %q", sub)
 }

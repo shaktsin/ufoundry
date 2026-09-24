@@ -35,8 +35,11 @@ type ModelSelection struct {
 
 // Thread is a durable conversation.
 type Thread struct {
-	ID         string         `json:"id"`
-	Title      string         `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// ProjectID is the project this chat works in; empty means no project,
+	// which makes the chat read-only for file and shell tools.
+	ProjectID  string         `json:"projectId,omitempty"`
 	Channel    string         `json:"channel"`
 	Pinned     bool           `json:"pinned"`
 	Archived   bool           `json:"archived"`
@@ -65,8 +68,11 @@ type Turn struct {
 	AutoPicked bool           `json:"autoPicked,omitempty"` // complexity chosen by Auto
 	Error      string         `json:"error,omitempty"`
 	Usage      UsageTotals    `json:"usage"`
-	StartedAt  time.Time      `json:"startedAt"`
-	FinishedAt *time.Time     `json:"finishedAt,omitempty"`
+	// RouteTrail is every route the turn tried, in order: what served it, and
+	// anything it moved off and why.
+	RouteTrail []RouteStep `json:"routeTrail,omitempty"`
+	StartedAt  time.Time   `json:"startedAt"`
+	FinishedAt *time.Time  `json:"finishedAt,omitempty"`
 }
 
 // Item kinds.
@@ -77,6 +83,7 @@ const (
 	ItemToolCall     = "toolCall"
 	ItemInboundEvent = "inboundEvent"
 	ItemApproval     = "approval"
+	ItemFileChange   = "fileChange"
 	ItemError        = "error"
 )
 
@@ -200,6 +207,20 @@ type Provider struct {
 	Enabled      bool   `json:"enabled"`
 	DefaultModel string `json:"defaultModel"`
 	Credentials  int    `json:"credentials"`
+}
+
+// ProviderIdentity is a subscription sign-in owned by an official model
+// runtime. It contains status and commands only, never tokens or secrets.
+type ProviderIdentity struct {
+	ID             string `json:"id"`
+	DisplayName    string `json:"displayName"`
+	RuntimeName    string `json:"runtimeName"`
+	Installed      bool   `json:"installed"`
+	SignedIn       bool   `json:"signedIn"`
+	AccountType    string `json:"accountType,omitempty"`
+	Status         string `json:"status"`
+	SignInCommand  string `json:"signInCommand"`
+	SignOutCommand string `json:"signOutCommand"`
 }
 
 // ComplexityPreset is the engine translation of one complexity level.

@@ -1,0 +1,352 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Desktop workbench palette: quiet cool neutrals and one cobalt accent. */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, Menlo, 'JetBrains Mono', monospace;
+
+  --color-paper: #f7f8fa;
+  --color-surface: #eef1f5;
+  --color-raised: #e3e7ed;
+  --color-line: #d9dee7;
+  --color-line-strong: #c6ccd6;
+  --color-ink: #172033;
+  --color-ink-soft: #344157;
+  --color-muted: #68758a;
+  --color-faint: #929caf;
+  --color-accent: #3569d4;
+  --color-accent-strong: #2454b5;
+  --color-accent-soft: #dfe9ff;
+  --color-clay: #3569d4;
+  --color-clay-soft: #b9cdf8;
+  --color-sage: #2f7a5c;
+  --color-sage-soft: #dcefe7;
+  --color-rust: #bd4b51;
+  --color-rust-soft: #f7dfe1;
+  --color-amber-warm: #9a681e;
+}
+
+/* Follow the system by default; .light / .dark override it. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --color-paper: #11151d;
+    --color-surface: #171c26;
+    --color-raised: #222936;
+    --color-line: #2b3342;
+    --color-line-strong: #3b4557;
+    --color-ink: #edf1f7;
+    --color-ink-soft: #c8d0dc;
+    --color-muted: #929daf;
+    --color-faint: #697487;
+    --color-accent: #79a3ff;
+    --color-accent-strong: #a8c3ff;
+    --color-accent-soft: #1d315b;
+    --color-clay: #79a3ff;
+    --color-clay-soft: #29457d;
+    --color-sage: #78bd9f;
+    --color-sage-soft: #18372c;
+    --color-rust: #ef8f94;
+    --color-rust-soft: #482329;
+    --color-amber-warm: #e2b66f;
+  }
+}
+
+.dark {
+  --color-paper: #11151d;
+  --color-surface: #171c26;
+  --color-raised: #222936;
+  --color-line: #2b3342;
+  --color-line-strong: #3b4557;
+  --color-ink: #edf1f7;
+  --color-ink-soft: #c8d0dc;
+  --color-muted: #929daf;
+  --color-faint: #697487;
+  --color-accent: #79a3ff;
+  --color-accent-strong: #a8c3ff;
+  --color-accent-soft: #1d315b;
+  --color-clay: #79a3ff;
+  --color-clay-soft: #29457d;
+  --color-sage: #78bd9f;
+  --color-sage-soft: #18372c;
+  --color-rust: #ef8f94;
+  --color-rust-soft: #482329;
+  --color-amber-warm: #e2b66f;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+  body {
+    @apply bg-paper text-ink antialiased;
+    font-size: 14px;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Anything worth reading or copying stays selectable. */
+  .selectable,
+  .prose-chat,
+  pre,
+  code,
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+  button {
+    cursor: default;
+  }
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-150 disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98];
+}
+@utility btn-primary {
+  @apply btn bg-clay text-white hover:brightness-110;
+}
+@utility btn-ghost {
+  @apply btn text-muted hover:text-ink hover:bg-raised;
+}
+@utility btn-outline {
+  @apply btn border border-line-strong text-ink-soft hover:bg-raised hover:text-ink;
+}
+@utility btn-danger {
+  @apply btn text-rust hover:bg-rust-soft;
+}
+@utility btn-sm {
+  @apply px-2 py-1 text-xs rounded-md;
+}
+@utility card {
+  @apply bg-surface border border-line rounded-xl shadow-[0_1px_2px_rgba(23,32,51,0.04)];
+}
+@utility input {
+  @apply w-full bg-paper border border-line-strong text-ink rounded-lg px-3 py-2 text-sm placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-clay focus:border-clay transition-colors;
+}
+@utility select {
+  @apply bg-paper border border-line-strong text-ink-soft rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clay;
+}
+@utility label {
+  @apply block text-xs font-medium text-muted mb-1;
+}
+@utility page-title {
+  @apply text-lg font-semibold text-ink;
+}
+@utility pill {
+  @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide;
+}
+@utility risk-green {
+  @apply pill bg-sage-soft text-sage;
+}
+@utility risk-yellow {
+  @apply pill bg-clay-soft/40 text-amber-warm;
+}
+@utility risk-red {
+  @apply pill bg-rust-soft text-rust;
+}
+@utility data-table {
+  @apply w-full text-sm;
+}
+
+.data-table th {
+  @apply text-left text-xs font-medium text-muted px-3 py-2 border-b border-line;
+}
+.data-table td {
+  @apply px-3 py-2 border-b border-line/70 align-top;
+}
+
+@source inline("risk-green risk-yellow risk-red");
+
+/* App shell */
+.app-rail {
+  width: 280px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-line);
+  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.app-rail.is-collapsed { width: 58px; }
+.rail-brand {
+  height: 52px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--color-line);
+}
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: #f7f9ff;
+  background: var(--color-accent);
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+}
+.brand-name { color: var(--color-ink); font-size: 14px; font-weight: 680; letter-spacing: -0.015em; }
+.icon-button {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--color-muted);
+  transition: color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.icon-button:hover { color: var(--color-ink); background: var(--color-raised); }
+.icon-button:active { transform: scale(.96); }
+.new-chat-button {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 9px;
+  background: var(--color-paper);
+  color: var(--color-ink-soft);
+  font-size: 12px;
+  font-weight: 580;
+  box-shadow: 0 1px 2px rgba(23,32,51,.04);
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.new-chat-button:hover { border-color: var(--color-accent); color: var(--color-ink); }
+.new-chat-button:active { transform: scale(.985); }
+.new-chat-button kbd { margin-left: auto; color: var(--color-faint); font: 10px var(--font-mono); }
+.rail-nav { padding: 10px; display: grid; gap: 3px; border-bottom: 1px solid var(--color-line); }
+.rail-nav-item {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 530;
+  transition: color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.rail-nav-item:hover { color: var(--color-ink); background: color-mix(in srgb, var(--color-raised) 72%, transparent); }
+.rail-nav-item:active { transform: scale(.985); }
+.rail-nav-item.is-active { color: var(--color-accent-strong); background: var(--color-accent-soft); font-weight: 620; }
+.rail-search {
+  width: 100%;
+  height: 31px;
+  padding: 0 28px 0 30px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-paper) 78%, transparent);
+  color: var(--color-ink);
+  font-size: 11px;
+}
+.rail-search::placeholder { color: var(--color-faint); }
+.rail-search:focus { border-color: var(--color-accent); outline: none; background: var(--color-paper); }
+.section-label { color: var(--color-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.popover { border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); box-shadow: 0 12px 34px rgba(23,32,51,.16); }
+.rail-footer { padding: 8px; border-top: 1px solid var(--color-line); display: grid; gap: 4px; }
+.footer-button {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.footer-button:hover, .footer-button.is-active { color: var(--color-ink); background: var(--color-raised); }
+.count-badge { min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; display: grid; place-items: center; border-radius: 999px; color: white; background: var(--color-rust); font-size: 9px; font-weight: 700; }
+.engine-line { display: flex; align-items: center; gap: 7px; min-height: 25px; padding: 0 8px; color: var(--color-faint); font-size: 10px; }
+.engine-indicator { width: 7px; height: 7px; border-radius: 999px; background: var(--color-rust); }
+.engine-indicator.is-online { background: var(--color-sage); }
+.engine-indicator.is-connecting { background: var(--color-amber-warm); animation: pulse 1.5s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* Rendered markdown in agent messages. */
+.prose-chat {
+  @apply text-sm leading-relaxed text-ink;
+  overflow-wrap: anywhere;
+}
+.prose-chat > * + * {
+  margin-top: 0.6em;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  @apply font-semibold text-ink;
+}
+.prose-chat h1 {
+  @apply text-lg;
+}
+.prose-chat h2 {
+  @apply text-base;
+}
+.prose-chat a {
+  @apply text-clay underline underline-offset-2;
+}
+.prose-chat ul {
+  @apply list-disc pl-5;
+}
+.prose-chat ol {
+  @apply list-decimal pl-5;
+}
+.prose-chat code {
+  @apply font-mono text-[0.85em] bg-raised rounded px-1 py-0.5;
+}
+.prose-chat pre {
+  @apply bg-surface border border-line rounded-lg p-3 overflow-x-auto text-xs;
+}
+.prose-chat pre code {
+  @apply bg-transparent p-0;
+}
+.prose-chat blockquote {
+  @apply border-l-2 border-line-strong pl-3 text-muted;
+}
+.prose-chat table {
+  @apply text-xs border-collapse;
+}
+.prose-chat th,
+.prose-chat td {
+  @apply border border-line px-2 py-1;
+}
+
+/* Unified diffs, in the same warm family. */
+.diff-line {
+  @apply font-mono text-[11px] leading-[1.5] whitespace-pre-wrap px-2;
+}
+.diff-add {
+  @apply bg-sage-soft text-sage;
+}
+.diff-del {
+  @apply bg-rust-soft text-rust;
+}
+.diff-hunk {
+  @apply text-faint bg-raised/60;
+}

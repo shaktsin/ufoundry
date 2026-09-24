@@ -15,6 +15,7 @@ import (
 	"github.com/shaktsin/ufoundry/internal/models"
 	"github.com/shaktsin/ufoundry/internal/policy"
 	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/ufoundry/internal/router"
 	"github.com/shaktsin/ufoundry/internal/store"
 	"github.com/shaktsin/ufoundry/internal/tools"
 )
@@ -22,13 +23,26 @@ import (
 // historyLimit caps how many prior messages are sent with a turn.
 const historyLimit = 60
 
-// resolved is the concrete choice for a turn.
+// resolved is the concrete choice for a turn: the route being used now, and
+// the ones the router lined up behind it.
 type resolved struct {
 	sel    protocol.ModelSelection // what is used
 	auto   bool                    // complexity picked by Auto
 	preset protocol.ComplexityPreset
 	meta   models.Meta
 	cred   credentials.Resolved
+	poolID string
+	route  router.Route
+	plan   *router.Plan
+	trail  []protocol.RouteStep
+}
+
+// use points the resolved selection at a route.
+func (r *resolved) use(rt router.Route) {
+	r.route = rt
+	r.cred = rt.Cred
+	r.meta = rt.Meta
+	r.sel.Provider, r.sel.Model, r.sel.CredentialID = rt.Provider, rt.Model, rt.Cred.Record.ID
 }
 
 // resolveSelection applies turn override > thread settings > defaults.
@@ -37,33 +51,19 @@ func (e *Engine) resolveSelection(ctx context.Context, th protocol.Thread, o pro
 	o.Provider = config.NormalizeProvider(o.Provider)
 	ts := th.Settings
 
-	provider := firstNonEmpty(o.Provider, ts.Provider, e.Cfg.LLM.Provider)
-	if provider == "" {
-		provider = "claude"
-	}
-	if _, ok := e.LLMs.Get(provider); !ok {
-		return r, fmt.Errorf("unknown provider %q", provider)
-	}
-	model := o.Model
-	if model == "" && ts.Provider == provider {
-		model = ts.Model
-	}
-	if model == "" && o.Provider == "" && ts.Provider == "" {
-		model = ts.Model
-	}
-	if model == "" {
-		model = e.defaultModel(provider)
-	}
-	if model == "" {
-		return r, fmt.Errorf("no model selected for %s; pick one in the chat or set a default in Settings", provider)
-	}
-	credID := o.CredentialID
-	if credID == "" && ts.Provider == provider {
-		credID = ts.CredentialID
-	}
-	cred, err := e.Creds.Resolve(ctx, provider, credID)
+	pick, err := e.pickCandidates(protocol.ModelSelection{
+		Provider: firstNonEmpty(o.Provider, ts.Provider),
+		Model:    selectedModel(o, ts),
+	})
 	if err != nil {
 		return r, err
+	}
+	provider, model, candidates, strategy := pick.provider, pick.model, pick.candidates, pick.strategy
+	r.poolID = pick.poolID
+
+	credID := o.CredentialID
+	if credID == "" && (ts.Provider == provider || provider == "") {
+		credID = ts.CredentialID
 	}
 
 	e.mu.Lock()
@@ -80,10 +80,49 @@ func (e *Engine) resolveSelection(ctx context.Context, th protocol.Thread, o pro
 		preset = presets[protocol.ComplexityStandard]
 	}
 	r.preset = preset
-	r.meta = e.Catalog.Lookup(ctx, provider, model)
-	r.cred = cred
-	r.sel = protocol.ModelSelection{Provider: provider, Model: model, Complexity: level, CredentialID: cred.Record.ID}
+	r.sel = protocol.ModelSelection{Complexity: level}
+
+	// The router turns the pins and the level into an ordered list of routes:
+	// what to run now, and what to fall back to if it fails.
+	pinned := protocol.ModelSelection{Complexity: level, CredentialID: credID}
+	if pick.explicit {
+		pinned.Provider, pinned.Model = provider, model
+	}
+	plan, err := e.Router.Plan(ctx, router.Request{
+		Pinned:     pinned,
+		Level:      level,
+		Candidates: candidates,
+		Strategy:   strategy,
+		Need: router.Capabilities{
+			Tools:  true,
+			Images: attachments > 0,
+		},
+	})
+	if err != nil {
+		return r, err
+	}
+	first, hasRoute := plan.Next()
+	if !hasRoute {
+		if plan.Reason != "" {
+			return r, errors.New(plan.Reason)
+		}
+		return r, router.ErrNoRoute
+	}
+	r.plan = plan
+	r.use(first)
 	return r, nil
+}
+
+// selectedModel picks the model out of a turn override and the thread's
+// settings, ignoring a thread's model when the turn names a different provider.
+func selectedModel(o, ts protocol.ModelSelection) string {
+	if o.Model != "" {
+		return o.Model
+	}
+	if o.Provider == "" || o.Provider == ts.Provider {
+		return ts.Model
+	}
+	return ""
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -97,6 +136,16 @@ func firstNonEmpty(vals ...string) string {
 
 // StartTurn records the user's message and runs the agent loop in the background.
 func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (protocol.Turn, error) {
+	return e.startTurn(ctx, turnRequest{TurnStartParams: p})
+}
+
+// turnRequest is a turn start with engine-internal options.
+type turnRequest struct {
+	protocol.TurnStartParams
+	wait chan protocol.Turn // receives the finished turn (buffered)
+}
+
+func (e *Engine) startTurn(ctx context.Context, p turnRequest) (protocol.Turn, error) {
 	if strings.TrimSpace(p.Text) == "" && len(p.Attachments) == 0 {
 		return protocol.Turn{}, protocol.Errorf(protocol.CodeInvalidParams, "message is empty")
 	}
@@ -124,9 +173,17 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	tctx, cancel := context.WithCancel(e.baseCtx)
 	e.threadTurns[th.ID] = turn.ID
 	e.activeTurns[turn.ID] = &activeTurn{cancel: cancel, turn: turn}
+	if p.wait != nil {
+		e.turnWaiters[turn.ID] = p.wait
+	}
 	e.mu.Unlock()
 
 	var releaseOnce sync.Once
+	abort := func() {
+		e.mu.Lock()
+		delete(e.turnWaiters, turn.ID)
+		e.mu.Unlock()
+	}
 	release := func() {
 		releaseOnce.Do(func() {
 			e.mu.Lock()
@@ -138,6 +195,7 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	}
 	if err := e.Store.CreateTurn(ctx, turn); err != nil {
 		release()
+		abort()
 		return protocol.Turn{}, err
 	}
 	e.Bus.Publish(th.ID, protocol.NotifyTurnStarted, protocol.TurnEvent{Turn: turn})
@@ -145,6 +203,7 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	userItem, err := e.newItem(ctx, turn, protocol.ItemUserMessage)
 	if err != nil {
 		release()
+		abort()
 		return protocol.Turn{}, err
 	}
 	userItem.Text = p.Text
@@ -158,6 +217,7 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	}
 	if err := e.saveAndPublish(ctx, userItem, protocol.NotifyItemCompleted); err != nil {
 		release()
+		abort()
 		return protocol.Turn{}, err
 	}
 
@@ -165,7 +225,7 @@ func (e *Engine) StartTurn(ctx context.Context, p protocol.TurnStartParams) (pro
 	go func() {
 		defer e.wg.Done()
 		defer release()
-		e.runTurn(tctx, th, turn, res, p, release)
+		e.runTurn(tctx, th, turn, res, p.TurnStartParams, release)
 	}()
 	return turn, nil
 }
@@ -210,6 +270,35 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 		e.finishTurn(sctx, th, turn, err, release)
 		return
 	}
+
+	// The project is the sandbox for this turn: file and shell tools resolve
+	// paths against its root, and every write becomes a fileChange item.
+	var proj *protocol.Project
+	if th.ProjectID != "" {
+		p, err := e.Projects.Get(sctx, th.ProjectID)
+		if err != nil {
+			e.finishTurn(sctx, th, turn, fmt.Errorf("project %s could not be opened: %w", th.ProjectID, err), release)
+			return
+		}
+		if p.Missing {
+			e.finishTurn(sctx, th, turn, fmt.Errorf("the folder of project %s (%s) is gone", p.Name, p.Root), release)
+			return
+		}
+		proj = &p
+		rec := e.Projects.NewRecorder(p, th.ID, turn.ID, func(c protocol.FileChangeData) {
+			e.publishFileChange(sctx, turn, c)
+		})
+		scope := &tools.Scope{
+			ProjectID: p.ID, ProjectName: p.Name, Root: p.Root,
+			AllowShell: boolOr(p.Tools.Shell, e.Cfg.Tools.ShellEnabled),
+			AllowNet:   boolOr(p.Tools.Network, false),
+			Record: func(c context.Context, abs string, before *string, deleted bool) {
+				rec.Record(sctx, abs, before, deleted)
+			},
+		}
+		ctx = tools.WithScope(ctx, scope)
+		sctx = tools.WithScope(sctx, scope)
+	}
 	user := llm.Message{Role: llm.RoleUser}
 	if p.Text != "" {
 		user.Parts = append(user.Parts, llm.Part{Type: "text", Text: p.Text})
@@ -224,17 +313,19 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 	var specs []llm.ToolSpec
 	if res.meta.Tools {
 		for _, t := range e.Tools.All() {
+			if !toolAllowed(t.Name(), proj) {
+				continue
+			}
 			specs = append(specs, llm.ToolSpec{Name: tools.ToWire(t.Name()), Description: t.Description(), Schema: t.Schema()})
 		}
 	}
 	req := llm.Request{
-		Model: res.sel.Model, System: e.systemPrompt(), Tools: specs, MaxTokens: res.preset.MaxOutputTokens,
+		Model: res.sel.Model, System: e.systemPrompt(sctx, p.Text, proj), Tools: specs, MaxTokens: res.preset.MaxOutputTokens,
 	}
 	if res.meta.Reasoning && res.preset.Reasoning != llm.ReasoningOff {
 		req.Reasoning, req.ReasoningStyle = res.preset.Reasoning, res.meta.ReasoningStyle
 	}
 
-	cred := res.cred
 	var turnErr error
 	steps := 0
 	for {
@@ -243,8 +334,7 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 			break
 		}
 		req.Messages = msgs
-		out, usedCred, err := e.callModel(ctx, sctx, turn, res, cred, req, "chat")
-		cred = usedCred
+		out, err := e.callModel(ctx, sctx, turn, &res, req, "chat")
 		if err != nil {
 			turnErr = err
 			break
@@ -271,6 +361,15 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 	if turnErr != nil {
 		log.Warn("turn failed", "err", turnErr)
 	}
+	// The turn's footer should name the model that actually answered, not the
+	// one it started on.
+	turn.Resolved = res.sel
+	if len(res.trail) > 0 {
+		turn.RouteTrail = res.trail
+		if err := e.Store.SetTurnRoutes(sctx, turn.ID, res.trail); err != nil {
+			log.Warn("could not record which models the turn used", "err", err)
+		}
+	}
 	e.finishTurn(sctx, th, turn, turnErr, release)
 }
 
@@ -287,35 +386,90 @@ type modelOutput struct {
 	calls    []llm.ToolCall
 }
 
-// callModel streams one model call, publishing items and recording usage. On a
-// rate-limit error it retries with fallback keys for the same provider.
-func (e *Engine) callModel(ctx, sctx context.Context, turn protocol.Turn, res resolved, cred credentials.Resolved,
-	req llm.Request, role string) (modelOutput, credentials.Resolved, error) {
-	provider, _ := e.LLMs.Get(res.sel.Provider)
-	tried := map[string]bool{}
+// callModel streams one model call, publishing items and recording usage. When
+// a route fails in a way another route could survive — a rate limit, an outage,
+// a revoked key, a prompt too long for the window — it moves down the router's
+// plan and says so, rather than failing the turn.
+func (e *Engine) callModel(ctx, sctx context.Context, turn protocol.Turn, res *resolved,
+	req llm.Request, role string) (modelOutput, error) {
 	for {
-		tried[cred.Record.ID] = true
-		if err := e.checkBudget(sctx, cred.Record); err != nil {
-			return modelOutput{}, cred, err
+		if err := e.checkBudget(sctx, res.cred.Record); err != nil {
+			return modelOutput{}, err
 		}
-		out, err := e.streamOnce(ctx, sctx, turn, res, cred, provider, req, role)
-		if err == nil || !llm.IsRateLimit(err) {
-			return out, cred, err
+		provider, ok := e.LLMs.Get(res.sel.Provider)
+		if !ok {
+			return modelOutput{}, fmt.Errorf("unknown provider %q", res.sel.Provider)
 		}
-		fbs, _ := e.Creds.Fallbacks(sctx, res.sel.Provider, cred.Record.ID)
-		next := -1
-		for i, fb := range fbs {
-			if !tried[fb.Record.ID] {
-				next = i
-				break
+		req.Model = res.sel.Model
+		if res.meta.Reasoning && res.preset.Reasoning != llm.ReasoningOff {
+			req.Reasoning, req.ReasoningStyle = res.preset.Reasoning, res.meta.ReasoningStyle
+		} else {
+			req.Reasoning, req.ReasoningStyle = "", ""
+		}
+		start := time.Now()
+		out, err := e.streamOnce(ctx, sctx, turn, *res, res.cred, provider, req, role)
+		if err == nil {
+			e.Router.Succeeded(sctx, res.route, time.Since(start))
+			res.trail = append(res.trail, step(res.route, "used", "", time.Since(start)))
+			return out, nil
+		}
+		if ctx.Err() != nil {
+			return out, err
+		}
+		status := e.Router.Failed(sctx, res.route, err)
+		res.trail = append(res.trail, step(res.route, status, err.Error(), time.Since(start)))
+		if !router.Retryable(err) || res.plan == nil {
+			return out, err
+		}
+		next, ok := res.plan.Next()
+		if !ok {
+			return out, fmt.Errorf("%w (no other model was available)", err)
+		}
+		from := res.route
+		res.use(next)
+		e.Log.Info("switching route", "from", from.Model, "to", next.Model, "why", status, "turn", turn.ID)
+		e.Bus.Publish(turn.ThreadID, protocol.NotifyRouteChanged, protocol.RouteChangedEvent{
+			ThreadID: turn.ThreadID, TurnID: turn.ID, From: from.Info(), To: next.Info(), Reason: status,
+		})
+		// A different model can answer differently, so the chat says so. A
+		// different key on the same model changes nothing the reader can see,
+		// so that one stays in the turn's footer.
+		if from.Model != next.Model {
+			if it, ierr := e.newItem(sctx, turn, protocol.ItemInboundEvent); ierr == nil {
+				it.Status = protocol.ItemCompleted
+				it.Text = switchNote(from, next, status)
+				_ = e.saveAndPublish(sctx, it, protocol.NotifyItemCompleted)
 			}
 		}
-		if next < 0 {
-			return out, cred, err
-		}
-		e.Log.Info("rate limited; retrying with fallback key", "from", cred.Record.Label, "to", fbs[next].Record.Label)
-		cred = fbs[next]
 	}
+}
+
+// step records one attempt for the turn's trail.
+func step(rt router.Route, status, errMsg string, took time.Duration) protocol.RouteStep {
+	return protocol.RouteStep{RouteInfo: rt.Info(), At: time.Now().UTC(), Status: status,
+		Error: errMsg, Latency: took.Milliseconds()}
+}
+
+// switchNote is the line the chat shows when the router moves a turn.
+func switchNote(from, to router.Route, status string) string {
+	name := func(r router.Route) string {
+		if r.Meta.DisplayName != "" {
+			return r.Meta.DisplayName
+		}
+		return r.Model
+	}
+	reason := map[string]string{
+		"rate_limited":     "a rate limit",
+		"server_error":     "a provider error",
+		"unauthorized":     "a key that was refused",
+		"timeout":          "a timeout",
+		"context_too_long": "a prompt too long for its context window",
+		"unknown_model":    "the model being unavailable",
+	}[status]
+	if reason == "" {
+		reason = "an error"
+	}
+	return fmt.Sprintf("Switched to %s after %s on %s.", name(to), reason, name(from))
 }
 
 func (e *Engine) streamOnce(ctx, sctx context.Context, turn protocol.Turn, res resolved, cred credentials.Resolved,
@@ -460,13 +614,16 @@ func (e *Engine) checkBudget(ctx context.Context, c protocol.Credential) error {
 
 // runTool executes one tool call, asking for approval when policy requires it.
 func (e *Engine) runTool(ctx, sctx context.Context, th protocol.Thread, turn protocol.Turn, call llm.ToolCall) (string, bool) {
-	name := tools.FromWire(call.Name)
+	name := call.Name
+	tool, ok := e.Tools.Get(call.Name)
+	if ok {
+		name = tool.Name()
+	}
 	it, err := e.newItem(sctx, turn, protocol.ItemToolCall)
 	if err != nil {
 		return "internal error: " + err.Error(), true
 	}
 	it.Tool = &protocol.ToolCallData{CallID: call.ID, Name: name, Args: call.Args}
-	tool, ok := e.Tools.Get(name)
 	if !ok {
 		it.Status, it.Tool.Error = protocol.ItemFailed, "unknown tool "+name
 		_ = e.saveAndPublish(sctx, it, protocol.NotifyItemCompleted)
@@ -536,6 +693,12 @@ func (e *Engine) finishTurn(ctx context.Context, th protocol.Thread, turn protoc
 	_ = e.Store.TouchThread(ctx, th.ID)
 	release()
 	e.Bus.Publish(th.ID, protocol.NotifyTurnCompleted, protocol.TurnEvent{Turn: turn})
+	e.mu.Lock()
+	if ch, ok := e.turnWaiters[turn.ID]; ok {
+		ch <- turn
+		delete(e.turnWaiters, turn.ID)
+	}
+	e.mu.Unlock()
 	e.publishThread(ctx, th.ID)
 	if th.Title == "" && turn.Status == protocol.TurnCompleted {
 		// Titles are generated in the background so the thread is free for the next turn.
@@ -574,6 +737,10 @@ func (e *Engine) history(ctx context.Context, threadID, currentTurn string) ([]l
 				note := fmt.Sprintf("[earlier tool call %s: %s]", it.Tool.Name, it.Status)
 				msgs = appendText(msgs, llm.RoleAssistant, note)
 			}
+		case protocol.ItemFileChange:
+			if it.Text != "" {
+				msgs = appendText(msgs, llm.RoleAssistant, "["+it.Text+"]")
+			}
 		}
 	}
 	// Providers need the history to start with a user message.
@@ -601,4 +768,48 @@ func appendText(msgs []llm.Message, role llm.Role, text string) []llm.Message {
 		return msgs
 	}
 	return append(msgs, llm.Text(role, text))
+}
+
+// boolOr returns *p when set, else def.
+func boolOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
+// publishFileChange records one edit as a fileChange item in the turn.
+func (e *Engine) publishFileChange(ctx context.Context, turn protocol.Turn, c protocol.FileChangeData) {
+	it, err := e.newItem(ctx, turn, protocol.ItemFileChange)
+	if err != nil {
+		return
+	}
+	it.Status = protocol.ItemCompleted
+	verb := map[string]string{
+		protocol.FileCreated: "Created", protocol.FileModified: "Edited", protocol.FileDeleted: "Deleted",
+	}[c.Action]
+	it.Text = fmt.Sprintf("%s %s (+%d −%d)", verb, c.Path, c.Additions, c.Deletions)
+	it.Data, _ = json.Marshal(c)
+	_ = e.saveAndPublish(ctx, it, protocol.NotifyItemCompleted)
+}
+
+// toolAllowed applies a project's tool settings: shell can be switched off,
+// and the MCP servers a project may use can be limited to a list.
+func toolAllowed(name string, proj *protocol.Project) bool {
+	if proj == nil {
+		return true
+	}
+	if strings.HasPrefix(name, "shell.") && !boolOr(proj.Tools.Shell, true) {
+		return false
+	}
+	if proj.Tools.MCPServers == nil || !strings.HasPrefix(name, "mcp_") {
+		return true
+	}
+	server := strings.SplitN(strings.TrimPrefix(name, "mcp_"), "_", 2)[0]
+	for _, allowed := range proj.Tools.MCPServers {
+		if allowed == server {
+			return true
+		}
+	}
+	return false
 }

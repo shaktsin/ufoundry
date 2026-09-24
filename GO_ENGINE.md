@@ -2,7 +2,7 @@
 
 The Go engine is the new core of UFoundry: one binary (`ufoundry`) that is both the always-on engine and the CLI. The Mac app and other clients talk to it through the engine protocol described below. It runs alongside the Python app during the migration and shares its `~/.ufoundry` folder and SQLite database.
 
-Status: milestones M0–M2 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407), plus the engine side of M5 (chats, models, complexity, API keys and usage). Connectors, skills, MCP, tasks and agent teams are still served by the Python app.
+Status: milestones M0–M5 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407) (engine, agent loop, skills, MCP, scheduled tasks, projects and the sandbox), plus the Mac app (M5) and the engine side of M6 (chats, models, complexity, API keys and usage). Connectors (Telegram, Gmail, Discord), Google Workspace tools and agent teams are still served by the Python app.
 
 ## Quick start
 
@@ -12,17 +12,61 @@ make go-build                       # → bin/ufoundry
 ./bin/ufoundry service install      # or: start at login (launchd / systemd --user)
 
 ./bin/ufoundry key add --provider claude --label personal   # prompts for the key, then tests it
-./bin/ufoundry chat "what's in my workspace?"
-./bin/ufoundry chat                 # interactive
+./bin/ufoundry project add ~/code/my-app                    # the folder the agent may work in
+./bin/ufoundry chat --project prj_… "add a test for the parser"
+./bin/ufoundry chat                 # interactive, no project: read-only
 ```
 
 API keys go to the macOS Keychain (service `com.ufoundry`); on Linux they are kept in `~/.ufoundry/secrets.json` (mode 0600). On first start the engine imports the keys the Python app already has, for any provider with no key yet: `api_key` values in `config.yaml`, `UFOUNDRY_*`/`UMABOT_*` environment variables, `~/.ufoundry/.env`, and the Python app's Keychain entries (service `ufoundry`, or `umabot` from before the rename). You can then remove keys from `config.yaml`.
+
+## The Mac app
+
+`UFoundry.app` is a [Wails v3](https://v3.wails.io) shell around a Svelte UI that speaks the engine protocol over the WebSocket — the same protocol the CLI uses, so the app is only a client.
+
+```sh
+make app-build            # → bin/UFoundry.app (macOS; add app-build-universal for arm64 + x86_64)
+make app-dev              # the UI in a browser against a running engine, with hot reload
+make app-check            # svelte-check + the UI's unit tests
+```
+
+The window is a rail plus up to three columns:
+
+| Column | What it holds |
+| --- | --- |
+| Rail | Project switcher, the views (chat, approvals, tasks, skills & MCP, usage, settings), and either the project's chats or its file tree |
+| 1 · Chat | The conversation: streaming replies, tool calls, file changes with inline diffs, approvals in place, and a composer with the complexity dial and model picker |
+| 2 · Side chat | “Ask about this” on any message, file or diff opens a child chat in the same project; several stack as tabs, and *Promote* hands its answer back to the main composer |
+| 3 · Inspector | A file, a diff or a long tool result, read-only, with *Undo* for a change and *Ask about this* to spin off a side chat |
+
+The shell itself does the native parts: a menu-bar item with the engine's state, the pending-approval count and the project list; approval notifications with Approve and Deny buttons; starting the engine (as a `SMAppService` login item when the app is installed, otherwise as a child process); *Open at Login*; and installing the `ufoundry` command-line tool. The UI reaches the engine through `/__ufoundry/connection`, which the shell answers with the WebSocket URL and the token from `~/.ufoundry/run/token`; `make app-dev` answers the same path from the Vite dev server, which is why the UI runs unchanged in a browser.
+
+The theme is warm rather than cold — paper and ink with one clay accent, and sage/rust diffs — and follows the system's light or dark setting.
+
+## Projects
+
+A **project** is a folder the agent may work in, and it is the sandbox: `file.read`, `file.list`, `file.write` and `shell.run` resolve every path against the project root — symlinks included — and refuse anything outside it. A write outside a project fails; it is never offered as an approval. A chat without a project still answers questions, but its file and shell tools are off.
+
+Each project carries its own defaults (provider, model, complexity, key), its tool switches (`shell`, `network`) and, optionally, the MCP servers it may use. Shell commands run with the project root as the working directory and an environment with no API keys in it; with `network` off, commands that obviously reach out (`curl`, `git push`, `npm install`, …) are refused with a message rather than failing halfway.
+
+**`AGENT.md` is the project's system prompt.** Every turn composes `~/.ufoundry/AGENT.md` (your standing instructions) → the project's `AGENT.md` → the nearest `AGENT.md` in the subtree being worked on. `AGENTS.md` (Codex) and `CLAUDE.md` (Claude Code) are read as fallbacks, so a repo set up for either works unchanged. Files are re-read when they change on disk and capped at 32 KB each; `ufoundry project instructions ID --composed` prints exactly what the agent receives.
+
+Every file the agent creates, changes or deletes becomes a **`fileChange` item** in the chat with a unified diff, and is recorded with the previous content (up to 1 MB), so `ufoundry project diff` shows what a turn did and `ufoundry project revert TURN_ID` puts it back. Answering an approval with `remember: true` stores that decision for the project, so "always allow `npm test` here" stops asking.
+
+```sh
+ufoundry project add ~/code/my-app --name my-app        # register a folder
+ufoundry project show prj_…                             # folder, git branch, defaults, AGENT.md
+ufoundry project instructions prj_… -f AGENT.md         # write the project's instructions
+ufoundry project diff prj_…                             # what the agent changed
+ufoundry project revert trn_…                           # undo one turn's edits
+ufoundry project set prj_… --network on -m claude-opus-5
+```
 
 ## CLI
 
 | Command | What it does |
 | --- | --- |
-| `chat [-t THREAD] [-p PROVIDER] [-m MODEL] [-c LEVEL] [-k KEY] [MESSAGE]` | Send a message, streaming the reply. Asks `[y/N]` for approvals. No message = interactive. |
+| `chat [--project ID] [-t THREAD] [-p PROVIDER] [-m MODEL] [-c LEVEL] [-k KEY] [MESSAGE]` | Send a message, streaming the reply. Asks `[y/N]` for approvals. No message = interactive. |
+| `project list / add / show / instructions / files / diff / revert / set / archive / remove` | Projects: the folders the agent may work in. |
 | `thread list / show / search / rename / pin / unpin / archive / unarchive / delete / fork / export` | Chat history. Old Python sessions appear as threads with ids `legacy-s<N>`. |
 | `thread set ID [-p] [-m] [-c] [-k]` | Save a thread's provider, model, complexity and key. |
 | `key list / add / test / default / enable / disable / fallback / rotate / delete / budget` | API keys per provider, monthly budgets (`--hard-stop` blocks requests at 100%). |
@@ -30,6 +74,10 @@ API keys go to the macOS Keychain (service `com.ufoundry`); on Linux they are ke
 | `complexity [show] / default LEVEL` | Complexity presets and the default level. |
 | `usage [--by credential\|model\|thread\|role\|day] [--days N] [--key ID]` | Tokens and cost. |
 | `approvals / approve ID / deny ID` | Answer approvals from another terminal. |
+| `task list [--all] / add / cancel ID / run ID / runs ID` | Scheduled tasks. `add` takes `--at 2026-09-20T09:00`, `--daily 09:00`, `--weekly mon@09:00`, `--hourly 15` or `--cron "0 9 * * mon-fri"`, plus `--tz`, `-p/-m/-c`. |
+| `skill list / show NAME / install PATH_OR_GIT_URL / remove NAME` | Skills in `./skills`, `~/.ufoundry/skills` and `skill_dirs`. |
+| `mcp [list] / mcp restart NAME` | MCP servers from `mcp_servers` and their status. |
+| `tools` | Every tool the agent can call, with its source. |
 | `status`, `service install\|uninstall\|status`, `version` | Engine management. |
 
 ## Model selection and complexity
@@ -50,6 +98,14 @@ The key is the requested one, else the provider's default key, else its oldest e
 | auto (default) | picks quick / standard / deep per message with a local heuristic; the turn records what it picked | | |
 
 Reasoning maps to Claude adaptive thinking + `output_config.effort` (or a thinking budget for Haiku 4.5), OpenAI `reasoning_effort`, and Gemini `thinkingLevel` (or `thinkingBudget` for 2.5). Models without reasoning ignore it.
+
+## Skills, MCP and scheduled tasks
+
+**Skills** use the same `SKILL.md` format as the Python app and are found in `./skills`, `~/.ufoundry/skills` and any `skill_dirs`. The system prompt lists each skill's name and description; the agent reads full instructions with `skill.get_instructions` and runs declared scripts with `skill.run_script`, or passes `skill: <name>` to `shell.run` to use the skill's environment. Scripts get `{"input": <args>, "config": <skills.<name>.config>}` on stdin (the `skill-template` contract), run in the skill folder with its `.venv` (created with `uv` when available, reusing venvs the Python app made), `extra_path`, `env` and `SKILL_DIR`, and never inherit the engine's own API keys. `risk_level` in `SKILL.md` (default yellow) decides approvals.
+
+**MCP servers** from `mcp_servers` (stdio or Streamable HTTP, same keys as the Python app) start in the background; their tools appear as `mcp_<server>_<tool>`. Risk comes from the server's `risk_level` if set, otherwise from the tool's annotations: read-only is green, destructive is red, anything else yellow. A server that exits is restarted on the next call.
+
+**Scheduled tasks** share the `tasks` table with the Python app. Each run becomes a turn in the task's own thread (so you can read its history and cost), with the task's provider/model/complexity. Approvals work as in chat. The agent can create, list and cancel tasks itself (`task.create`, `task.list`, `task.cancel`). Differences from the Python app: cron schedules are new (the Python app ignores them), and a failed one-time task is not retried in a loop. Both schedulers lease tasks before running them, so running both apps never runs a task twice.
 
 ## Usage and cost
 
@@ -72,26 +128,41 @@ models:
 llm:
   providers:
     openai_compatible: {base_url: http://localhost:11434/v1, default_model: llama3.3}
+skills:
+  weather-fetch:
+    config: {api_key_env: WEATHER_KEY}   # passed to scripts as "config"
+mcp_servers:
+  - name: github
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env_vars: [GITHUB_TOKEN]            # forwarded from the engine's environment
+    risk_level: yellow                  # optional override for every tool on this server
 ```
 
 ## Protocol
 
-JSON-RPC 2.0, one message per line on the Unix socket `~/.ufoundry/run/engine.sock` (0600), or one per text frame on `ws://127.0.0.1:8766/ws` with `Authorization: Bearer <~/.ufoundry/run/token>` (or `?token=`). The token is regenerated at each engine start. Clients must call `initialize` first (`protocolVersion` major must match; `admin: true` to receive and answer approvals).
+JSON-RPC 2.0, one message per line on the Unix socket `~/.ufoundry/run/engine.sock` (0600), or one per text frame on `ws://127.0.0.1:8766/ws` with `Authorization: Bearer <~/.ufoundry/run/token>` (or `?token=`). The token is regenerated at each engine start. Browser clients may connect from the Mac app's webview (`wails://…`) or a local dev server; other origins are refused. Clients must call `initialize` first (`protocolVersion` major must match; `admin: true` to receive and answer approvals).
 
 Types are in `internal/protocol`. Methods:
 
 | Group | Methods |
 | --- | --- |
 | Session | `initialize`, `engine/status`, `events/subscribe` (`{all: true}` or `{threadIds: [...]}`) |
-| Threads | `thread/start`, `thread/list`, `thread/read`, `thread/rename`, `thread/pin`, `thread/archive`, `thread/delete`, `thread/fork`, `thread/search`, `thread/export`, `thread/setSettings` |
+| Projects | `project/list`, `project/create`, `project/open`, `project/update`, `project/delete`, `project/instructions`, `project/files`, `project/readFile`, `project/diff`, `project/revertTurn` |
+| Threads | `thread/start` (`projectId`), `thread/list`, `thread/read`, `thread/rename`, `thread/pin`, `thread/archive`, `thread/delete`, `thread/fork`, `thread/search`, `thread/export`, `thread/setSettings` |
 | Turns | `turn/start` (`text`, `attachments`, `override`), `turn/interrupt` |
 | Approvals | `approval/list`, `approval/respond` |
 | Providers, models | `provider/list`, `model/list`, `model/setHidden`, `model/setPrice`, `model/refresh` |
 | API keys | `credential/list`, `credential/add`, `credential/test`, `credential/update`, `credential/rotate`, `credential/delete` |
 | Usage | `usage/summary`, `usage/setBudget` |
 | Complexity | `complexity/getDefaults`, `complexity/setDefaults` |
+| Tasks | `task/list`, `task/create`, `task/cancel`, `task/runNow`, `task/runs` |
+| Skills | `skill/list`, `skill/get`, `skill/install`, `skill/remove` |
+| MCP and tools | `mcp/list`, `mcp/restart`, `tool/list` |
 
-Notifications: `turn/started`, `turn/completed` (with `usage`), `item/started`, `item/delta`, `item/completed`, `thread/updated`, `approval/request` and `approval/resolved` (admin clients), `usage/budgetWarning`. A client receives thread events for threads it started, read or sent a turn to, or all threads after `events/subscribe {all: true}`.
+Item kinds are `userMessage`, `agentMessage`, `reasoning`, `toolCall`, `fileChange` (path, action, diff, counts, the turn that made it), `inboundEvent` and `error`.
+
+Notifications: `turn/started`, `turn/completed` (with `usage`), `item/started`, `item/delta`, `item/completed`, `thread/updated`, `approval/request`, `approval/resolved`, `usage/budgetWarning`, `project/updated` and `task/updated` (admin clients). A client receives thread events for threads it started, read or sent a turn to, or all threads after `events/subscribe {all: true}`.
 
 Approvals are a notification plus `approval/respond` rather than a server-to-client request: the first admin answer wins, later ones get error `-32005`, and everyone gets `approval/resolved`.
 
@@ -106,11 +177,31 @@ internal/engine/     threads, turns, agent loop, approvals, titles
 internal/llm/        Claude, OpenAI(-compatible) and Gemini streaming adapters (plain HTTP)
 internal/models/     catalog, prices, cost, complexity presets and Auto classifier
 internal/credentials/ API keys, Keychain, budgets, fallback
-internal/tools/      built-in tools (file.read/list/write, shell.run) + workspace ACL
+internal/tools/      tool registry, built-in tools (file.read/list/write, shell.run), project scope + workspace ACL
+internal/projects/   projects, AGENT.md composition, file trees, diffs and undo
+internal/pathutil/   the containment rule every tool shares (symlink-safe, /var vs /private/var)
+internal/skills/     SKILL.md loader, runtimes/venvs, skill tools, install/remove
+internal/mcp/        MCP client (stdio + Streamable HTTP) and tool bridge
+internal/tasks/      schedules (incl. cron), scheduler loop, task tools
+internal/procutil/   subprocess cleanup (process groups, timeouts)
 internal/policy/     approval policy
 internal/store/      SQLite (pure Go, WASM build of SQLite) + migrations
 internal/config/     config.yaml loader (reads the Python app's keys)
 internal/secrets/    Keychain (macOS) / file store
+```
+
+### App layout
+
+```
+app/                 Wails v3 shell (its own Go module; needs Go 1.25)
+  main.go            window, menu bar, engine lifecycle
+  shell.go           /__ufoundry/* endpoints, tray menu, login item, CLI install
+  watcher.go         admin connection: approval notifications, counts, projects
+  engine.go          finds and supervises the engine (SMAppService or child process)
+  build/macos/       Info.plist, the engine LaunchAgent, bundle.sh
+                     (the engine sits in Contents/Resources: macOS ignores
+                     case, so Contents/MacOS/ufoundry would be the app itself)
+  frontend/          Svelte 5 + Vite UI (svelte-check, vitest)
 ```
 
 ## Building without golang.org access

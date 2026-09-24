@@ -25,6 +25,13 @@ type Config struct {
 	Runtime RuntimeConfig `yaml:"runtime"`
 	Models  ModelsConfig  `yaml:"models"`
 
+	// SkillDirs are extra directories scanned for skills (each subfolder with a SKILL.md).
+	SkillDirs []string `yaml:"skill_dirs"`
+	// Skills holds runtime overrides: "defaults" plus one entry per skill name.
+	Skills map[string]SkillRuntimeOverride `yaml:"skills"`
+	// MCPServers are Model Context Protocol servers whose tools the agent can use.
+	MCPServers []MCPServerConfig `yaml:"mcp_servers"`
+
 	// Path is where the config was loaded from ("" if defaults only).
 	Path string `yaml:"-"`
 	// Home is the resolved UFoundry home directory.
@@ -118,7 +125,32 @@ type ModelsConfig struct {
 	Complexity        map[string]ComplexityPreset `yaml:"complexity"`
 	// Roles overrides the model per role: title, intent, orchestrator, worker.
 	Roles map[string]AgentModelConfig `yaml:"roles"`
+	// Configured is the user-approved model list shown in the app.
+	Configured []ConfiguredModel `yaml:"configured"`
+	// Pools are ordered groups used for automatic cross-provider fallback.
+	Pools       []ModelPool `yaml:"pools"`
+	DefaultPool string      `yaml:"default_pool"`
 }
+
+type ConfiguredModel struct {
+	ID       string `yaml:"id"`
+	Name     string `yaml:"name"`
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
+	Enabled  *bool  `yaml:"enabled"`
+}
+
+func (m ConfiguredModel) IsEnabled() bool { return m.Enabled == nil || *m.Enabled }
+
+type ModelPool struct {
+	ID       string   `yaml:"id"`
+	Name     string   `yaml:"name"`
+	Strategy string   `yaml:"strategy"`
+	Models   []string `yaml:"models"`
+	Enabled  *bool    `yaml:"enabled"`
+}
+
+func (p ModelPool) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
 
 type ComplexityPreset struct {
 	Reasoning       string `yaml:"reasoning"`
@@ -126,6 +158,42 @@ type ComplexityPreset struct {
 	MultiAgent      string `yaml:"multi_agent"`
 	MaxOutputTokens int    `yaml:"max_output_tokens"`
 }
+
+// SkillRuntimeOverride overrides a skill's runtime (python/node binaries, PATH, env).
+type SkillRuntimeOverride struct {
+	PythonBin string            `yaml:"python_bin"`
+	NodeBin   string            `yaml:"node_bin"`
+	ExtraPath []string          `yaml:"extra_path"`
+	Env       map[string]string `yaml:"env"`
+	// Config is passed to the skill's scripts as the "config" object on stdin.
+	Config map[string]any `yaml:"config"`
+}
+
+// MCPServerConfig is one MCP server (same keys as the Python app).
+type MCPServerConfig struct {
+	Name              string            `yaml:"name"`
+	Transport         string            `yaml:"transport"` // stdio (default) | http
+	Command           string            `yaml:"command"`
+	Args              []string          `yaml:"args"`
+	Env               map[string]string `yaml:"env"`
+	EnvVars           []string          `yaml:"env_vars"`
+	Cwd               string            `yaml:"cwd"`
+	URL               string            `yaml:"url"`
+	BearerTokenEnvVar string            `yaml:"bearer_token_env_var"`
+	HTTPHeaders       map[string]string `yaml:"http_headers"`
+	EnvHTTPHeaders    map[string]string `yaml:"env_http_headers"`
+	Enabled           *bool             `yaml:"enabled"`
+	Required          bool              `yaml:"required"`
+	StartupTimeoutSec float64           `yaml:"startup_timeout_sec"`
+	ToolTimeoutSec    float64           `yaml:"tool_timeout_sec"`
+	EnabledTools      []string          `yaml:"enabled_tools"`
+	DisabledTools     []string          `yaml:"disabled_tools"`
+	// RiskLevel overrides the risk of every tool on this server: green | yellow | red.
+	RiskLevel string `yaml:"risk_level"`
+}
+
+// IsEnabled defaults to true when unset.
+func (m MCPServerConfig) IsEnabled() bool { return m.Enabled == nil || *m.Enabled }
 
 // HomeDir returns the UFoundry home: $UFOUNDRY_HOME, else ~/.ufoundry.
 // If only the pre-rename ~/.umabot exists it is moved to ~/.ufoundry.
@@ -242,6 +310,12 @@ func (c *Config) finalize() {
 	for i := range c.Tools.Workspaces {
 		c.Tools.Workspaces[i].Path = expand(c.Tools.Workspaces[i].Path)
 	}
+	for i := range c.SkillDirs {
+		c.SkillDirs[i] = expand(c.SkillDirs[i])
+	}
+	for i := range c.MCPServers {
+		c.MCPServers[i].Cwd = expand(c.MCPServers[i].Cwd)
+	}
 	if c.Agents.ContextFile != "" {
 		c.Agents.ContextFile = expand(c.Agents.ContextFile)
 	}
@@ -252,6 +326,9 @@ func (c *Config) finalize() {
 		c.Models.DefaultComplexity = "auto"
 	}
 	c.LLM.Provider = NormalizeProvider(c.LLM.Provider)
+	for i := range c.Models.Configured {
+		c.Models.Configured[i].Provider = NormalizeProvider(c.Models.Configured[i].Provider)
+	}
 	if c.LLM.Providers != nil {
 		norm := make(map[string]LLMProviderConfig, len(c.LLM.Providers))
 		for k, v := range c.LLM.Providers {
@@ -267,6 +344,62 @@ func (c *Config) Validate() error {
 	case "auto", "quick", "standard", "deep":
 	default:
 		return fmt.Errorf("models.default_complexity: unknown value %q", c.Models.DefaultComplexity)
+	}
+	seen := map[string]bool{}
+	modelIDs := map[string]bool{}
+	for _, m := range c.Models.Configured {
+		if m.ID == "" || m.Provider == "" || m.Model == "" {
+			return fmt.Errorf("models.configured: id, provider and model are required")
+		}
+		if modelIDs[m.ID] {
+			return fmt.Errorf("models.configured: duplicate id %q", m.ID)
+		}
+		modelIDs[m.ID] = true
+	}
+	poolIDs := map[string]bool{}
+	for _, p := range c.Models.Pools {
+		if p.ID == "" || p.Name == "" {
+			return fmt.Errorf("models.pools: id and name are required")
+		}
+		if poolIDs[p.ID] {
+			return fmt.Errorf("models.pools: duplicate id %q", p.ID)
+		}
+		poolIDs[p.ID] = true
+		if p.Strategy != "" && p.Strategy != "priority" && p.Strategy != "balanced" && p.Strategy != "quality" && p.Strategy != "fast" && p.Strategy != "cheap" {
+			return fmt.Errorf("models.pools.%s: unknown strategy %q", p.ID, p.Strategy)
+		}
+		if len(p.Models) == 0 {
+			return fmt.Errorf("models.pools.%s: at least one model is required", p.ID)
+		}
+		for _, id := range p.Models {
+			if !modelIDs[id] {
+				return fmt.Errorf("models.pools.%s: unknown configured model %q", p.ID, id)
+			}
+		}
+	}
+	if c.Models.DefaultPool != "" && !poolIDs[c.Models.DefaultPool] {
+		return fmt.Errorf("models.default_pool: unknown pool %q", c.Models.DefaultPool)
+	}
+	for _, m := range c.MCPServers {
+		if m.Name == "" {
+			return fmt.Errorf("mcp_servers: every server needs a name")
+		}
+		if seen[m.Name] {
+			return fmt.Errorf("mcp_servers: duplicate name %q", m.Name)
+		}
+		seen[m.Name] = true
+		switch m.Transport {
+		case "", "stdio":
+			if m.Command == "" && m.IsEnabled() {
+				return fmt.Errorf("mcp_servers.%s: command is required for stdio", m.Name)
+			}
+		case "http":
+			if m.URL == "" && m.IsEnabled() {
+				return fmt.Errorf("mcp_servers.%s: url is required for http", m.Name)
+			}
+		default:
+			return fmt.Errorf("mcp_servers.%s: unknown transport %q", m.Name, m.Transport)
+		}
 	}
 	if c.Runtime.EngineWSPort < 0 || c.Runtime.EngineWSPort > 65535 {
 		return fmt.Errorf("runtime.engine_ws_port out of range: %d", c.Runtime.EngineWSPort)

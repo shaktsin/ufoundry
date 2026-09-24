@@ -26,6 +26,7 @@ const (
 func runChat(args []string) error {
 	fs := flag.NewFlagSet("chat", flag.ExitOnError)
 	threadID := fs.String("t", "", "thread id to continue")
+	project := fs.String("project", "", "project id to work in (see `ufoundry project list`)")
 	provider := fs.String("p", "", "provider")
 	model := fs.String("m", "", "model")
 	cplx := fs.String("c", "", "complexity: auto|quick|standard|deep")
@@ -44,7 +45,8 @@ func runChat(args []string) error {
 	tid := *threadID
 	if tid == "" {
 		var th protocol.Thread
-		if err := c.Call(ctx, protocol.MethodThreadStart, protocol.ThreadStartParams{Channel: "cli", Settings: override}, &th); err != nil {
+		if err := c.Call(ctx, protocol.MethodThreadStart, protocol.ThreadStartParams{Channel: "cli",
+			ProjectID: *project, Settings: override}, &th); err != nil {
 			return err
 		}
 		tid = th.ID
@@ -120,6 +122,14 @@ func chatTurn(ctx context.Context, c *client.Client, in *bufio.Reader, threadID,
 					} else {
 						renderToolResult(it)
 					}
+				case protocol.ItemFileChange:
+					if lastWasText {
+						fmt.Println()
+						lastWasText = false
+					}
+					if n.Method == protocol.NotifyItemCompleted {
+						fmt.Printf("%s✎ %s%s\n", dim, it.Text, reset)
+					}
 				case protocol.ItemError:
 					fmt.Printf("%s%s%s\n", red, it.Text, reset)
 				case protocol.ItemAgentMessage:
@@ -153,6 +163,17 @@ func chatTurn(ctx context.Context, c *client.Client, in *bufio.Reader, threadID,
 				if err := c.Call(ctx, protocol.MethodApprovalRespond, protocol.ApprovalRespondParams{ApprovalID: ev.Approval.ID, Approve: approve}, &out); err != nil {
 					fmt.Fprintf(os.Stderr, "%s(%v)%s\n", dim, err, reset)
 				}
+			case protocol.NotifyRouteChanged:
+				var ev protocol.RouteChangedEvent
+				if json.Unmarshal(n.Params, &ev) != nil || ev.TurnID != turnID {
+					continue
+				}
+				if lastWasText {
+					fmt.Println()
+					lastWasText = false
+				}
+				fmt.Fprintf(os.Stderr, "%s↷ %s (%s) → %s (%s) after %s%s\n", dim,
+					ev.From.Model, ev.From.CredentialL, ev.To.Model, ev.To.CredentialL, ev.Reason, reset)
 			case protocol.NotifyBudgetWarning:
 				var w protocol.BudgetWarning
 				if json.Unmarshal(n.Params, &w) == nil {
@@ -167,7 +188,11 @@ func chatTurn(ctx context.Context, c *client.Client, in *bufio.Reader, threadID,
 					fmt.Println()
 				}
 				t := ev.Turn
-				fmt.Fprintf(os.Stderr, "%s%s · %s%s\n", dim, t.Status, fmtUsage(t.Usage), reset)
+				answered := ""
+				if t.Resolved.Model != r.Model || t.Resolved.CredentialID != r.CredentialID {
+					answered = t.Resolved.Model + " · "
+				}
+				fmt.Fprintf(os.Stderr, "%s%s · %s%s%s\n", dim, t.Status, answered, fmtUsage(t.Usage), reset)
 				if t.Status == protocol.TurnFailed {
 					return errors.New(t.Error)
 				}

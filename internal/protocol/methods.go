@@ -27,10 +27,13 @@ const (
 	MethodApprovalRespond = "approval/respond"
 
 	MethodProviderList   = "provider/list"
+	MethodIdentityList   = "identity/list"
 	MethodModelList      = "model/list"
 	MethodModelSetHidden = "model/setHidden"
 	MethodModelRefresh   = "model/refresh"
 	MethodModelSetPrice  = "model/setPrice"
+	MethodRoutingGet     = "routing/get"
+	MethodRoutingSet     = "routing/set"
 
 	MethodCredentialList   = "credential/list"
 	MethodCredentialAdd    = "credential/add"
@@ -94,16 +97,21 @@ type SubscribeParams struct {
 }
 
 type ThreadStartParams struct {
-	Title    string         `json:"title,omitempty"`
-	Channel  string         `json:"channel,omitempty"`
-	Settings ModelSelection `json:"settings,omitempty"`
+	Title     string `json:"title,omitempty"`
+	ProjectID string `json:"projectId,omitempty"`
+	// ParentThreadID marks this chat as a side chat of another one: same
+	// project, its own turns, shown beside its parent.
+	ParentThreadID string         `json:"parentThreadId,omitempty"`
+	Channel        string         `json:"channel,omitempty"`
+	Settings       ModelSelection `json:"settings,omitempty"`
 }
 
 type ThreadListParams struct {
-	Archived *bool  `json:"archived,omitempty"`
-	Channel  string `json:"channel,omitempty"`
-	Limit    int    `json:"limit,omitempty"`
-	Before   string `json:"before,omitempty"` // updatedAt cursor (RFC3339Nano)
+	Archived  *bool  `json:"archived,omitempty"`
+	ProjectID string `json:"projectId,omitempty"`
+	Channel   string `json:"channel,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Before    string `json:"before,omitempty"` // updatedAt cursor (RFC3339Nano)
 }
 
 type ThreadListResult struct {
@@ -180,6 +188,9 @@ type TurnInterruptParams struct {
 type ApprovalRespondParams struct {
 	ApprovalID string `json:"approvalId"`
 	Approve    bool   `json:"approve"`
+	// Remember stores the answer for this project, so the same action is not
+	// asked about again ("always allow `npm test` here").
+	Remember bool `json:"remember,omitempty"`
 }
 
 type ApprovalListResult struct {
@@ -188,6 +199,10 @@ type ApprovalListResult struct {
 
 type ProviderListResult struct {
 	Providers []Provider `json:"providers"`
+}
+
+type IdentityListResult struct {
+	Identities []ProviderIdentity `json:"identities"`
 }
 
 type ModelListParams struct {

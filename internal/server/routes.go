@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/ufoundry/internal/skills"
 )
 
 type handler func(ctx context.Context, c *conn, params json.RawMessage) (any, error)
@@ -110,6 +113,42 @@ func (s *Server) routes() map[string]handler {
 			return e.SetThreadSettings(ctx, p)
 		}),
 
+		// projects
+		protocol.MethodProjectList: bind(func(ctx context.Context, c *conn, p protocol.ProjectListParams) (any, error) {
+			list, err := e.Projects.List(ctx, p.IncludeArchived)
+			if list == nil {
+				list = []protocol.Project{}
+			}
+			return protocol.ProjectListResult{Projects: list}, err
+		}),
+		protocol.MethodProjectCreate: bind(func(ctx context.Context, c *conn, p protocol.ProjectCreateParams) (any, error) {
+			return e.CreateProject(ctx, p)
+		}),
+		protocol.MethodProjectOpen: bind(func(ctx context.Context, c *conn, p protocol.ProjectIDParams) (any, error) {
+			return e.OpenProject(ctx, p.ProjectID)
+		}),
+		protocol.MethodProjectUpdate: bind(func(ctx context.Context, c *conn, p protocol.ProjectUpdateParams) (any, error) {
+			return e.UpdateProject(ctx, p)
+		}),
+		protocol.MethodProjectDelete: bind(func(ctx context.Context, c *conn, p protocol.ProjectIDParams) (any, error) {
+			return okResult{true}, e.DeleteProject(ctx, p.ProjectID)
+		}),
+		protocol.MethodProjectInstructions: bind(func(ctx context.Context, c *conn, p protocol.ProjectInstructionsParams) (any, error) {
+			return e.ProjectInstructions(ctx, p)
+		}),
+		protocol.MethodProjectFiles: bind(func(ctx context.Context, c *conn, p protocol.ProjectFilesParams) (any, error) {
+			return e.ProjectFiles(ctx, p)
+		}),
+		protocol.MethodProjectReadFile: bind(func(ctx context.Context, c *conn, p protocol.ProjectReadFileParams) (any, error) {
+			return e.ProjectReadFile(ctx, p)
+		}),
+		protocol.MethodProjectDiff: bind(func(ctx context.Context, c *conn, p protocol.ProjectDiffParams) (any, error) {
+			return e.ProjectDiff(ctx, p)
+		}),
+		protocol.MethodProjectRevertTurn: bind(func(ctx context.Context, c *conn, p protocol.ProjectRevertTurnParams) (any, error) {
+			return e.RevertTurn(ctx, p)
+		}),
+
 		// turns
 		protocol.MethodTurnStart: bind(func(ctx context.Context, c *conn, p protocol.TurnStartParams) (any, error) {
 			c.follow(p.ThreadID)
@@ -132,13 +171,16 @@ func (s *Server) routes() map[string]handler {
 			if !c.IsAdmin() {
 				return nil, protocol.Errorf(protocol.CodeInvalidRequest, "only admin clients can answer approvals")
 			}
-			return e.RespondApproval(ctx, p.ApprovalID, p.Approve, c.id)
+			return e.RespondApproval(ctx, p.ApprovalID, p.Approve, p.Remember, c.id)
 		}),
 
 		// providers and models
 		protocol.MethodProviderList: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
 			ps, err := e.Providers(ctx)
 			return protocol.ProviderListResult{Providers: ps}, err
+		}),
+		protocol.MethodIdentityList: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
+			return protocol.IdentityListResult{Identities: e.ProviderIdentities(ctx)}, nil
 		}),
 		protocol.MethodModelList: bind(func(ctx context.Context, c *conn, p protocol.ModelListParams) (any, error) {
 			ms, err := e.Catalog.List(ctx, p.Provider, p.IncludeHidden)
@@ -155,6 +197,27 @@ func (s *Server) routes() map[string]handler {
 				return nil, protocol.Errorf(protocol.CodeInvalidParams, "prices must be >= 0")
 			}
 			return okResult{true}, e.Store.SetModelPrice(ctx, p)
+		}),
+		protocol.MethodRoutingGet: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
+			return e.RoutingConfig(), nil
+		}),
+		protocol.MethodRoutingSet: bind(func(ctx context.Context, c *conn, p protocol.RoutingConfig) (any, error) {
+			cfg, err := e.SetRoutingConfig(ctx, p)
+			if err != nil {
+				return nil, protocol.Errorf(protocol.CodeInvalidParams, "%v", err)
+			}
+			return cfg, nil
+		}),
+		protocol.MethodModelRoute: bind(func(ctx context.Context, c *conn, p protocol.ModelRouteParams) (any, error) {
+			return e.RoutePreview(ctx, p)
+		}),
+		protocol.MethodModelHealth: bind(func(ctx context.Context, c *conn, p protocol.ModelHealthParams) (any, error) {
+			if p.Clear != nil {
+				if err := e.ClearCooldown(ctx, p.Clear.Provider, p.Clear.Model, p.Clear.CredentialID); err != nil {
+					return nil, err
+				}
+			}
+			return e.ModelHealth(ctx)
 		}),
 		protocol.MethodModelRefresh: bind(func(ctx context.Context, c *conn, p protocol.ModelRefreshParams) (any, error) {
 			return e.RefreshModels(ctx, p.CredentialID)
@@ -203,6 +266,99 @@ func (s *Server) routes() map[string]handler {
 			return okResult{true}, e.Creds.SetBudget(ctx, p)
 		}),
 
+		// scheduled tasks
+		protocol.MethodTaskList: bind(func(ctx context.Context, c *conn, p protocol.TaskListParams) (any, error) {
+			list, err := e.Store.ListTasks(ctx, p.Status)
+			if list == nil {
+				list = []protocol.Task{}
+			}
+			return protocol.TaskListResult{Tasks: list}, err
+		}),
+		protocol.MethodTaskCreate: bind(func(ctx context.Context, c *conn, p protocol.TaskCreateParams) (any, error) {
+			t, err := e.Tasks.Create(ctx, p, c.id)
+			if err != nil {
+				return nil, protocol.Errorf(protocol.CodeInvalidParams, "%v", err)
+			}
+			return t, nil
+		}),
+		protocol.MethodTaskCancel: bind(func(ctx context.Context, c *conn, p protocol.TaskIDParams) (any, error) {
+			return e.Tasks.Cancel(ctx, p.TaskID)
+		}),
+		protocol.MethodTaskRunNow: bind(func(ctx context.Context, c *conn, p protocol.TaskIDParams) (any, error) {
+			return e.Tasks.RunNow(ctx, p.TaskID)
+		}),
+		protocol.MethodTaskRuns: bind(func(ctx context.Context, c *conn, p protocol.TaskIDParams) (any, error) {
+			runs, err := e.Store.ListTaskRuns(ctx, p.TaskID, 50)
+			if runs == nil {
+				runs = []protocol.TaskRun{}
+			}
+			return protocol.TaskRunsResult{Runs: runs}, err
+		}),
+
+		// skills
+		protocol.MethodSkillList: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
+			res := protocol.SkillListResult{Skills: []protocol.SkillInfo{}, Dirs: e.Skills.Dirs()}
+			for _, sk := range e.Skills.List() {
+				res.Skills = append(res.Skills, skillInfo(e.Skills, sk))
+			}
+			return res, nil
+		}),
+		protocol.MethodSkillGet: bind(func(ctx context.Context, c *conn, p protocol.SkillNameParams) (any, error) {
+			sk, ok := e.Skills.Get(p.Name)
+			if !ok {
+				return nil, protocol.Errorf(protocol.CodeNotFound, "skill %q is not installed", p.Name)
+			}
+			detail, _ := json.Marshal(sk.Scripts)
+			return protocol.SkillGetResult{Skill: skillInfo(e.Skills, sk), Instructions: sk.Body, ScriptsJSON: detail}, nil
+		}),
+		protocol.MethodSkillInstall: bind(func(ctx context.Context, c *conn, p protocol.SkillInstallParams) (any, error) {
+			sk, err := e.Skills.Install(ctx, p.Source, p.Name)
+			if err != nil {
+				return nil, protocol.Errorf(protocol.CodeInvalidParams, "%v", err)
+			}
+			_ = e.Store.Audit(ctx, "skill.install", map[string]any{"name": sk.Name, "source": p.Source})
+			return skillInfo(e.Skills, sk), nil
+		}),
+		protocol.MethodSkillRemove: bind(func(ctx context.Context, c *conn, p protocol.SkillNameParams) (any, error) {
+			if err := e.Skills.Remove(p.Name); err != nil {
+				return nil, protocol.Errorf(protocol.CodeInvalidParams, "%v", err)
+			}
+			_ = e.Store.Audit(ctx, "skill.remove", map[string]any{"name": p.Name})
+			return okResult{true}, nil
+		}),
+
+		// MCP and tools
+		protocol.MethodMCPList: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
+			res := protocol.MCPListResult{Servers: []protocol.MCPServer{}}
+			for _, s := range e.MCP.List() {
+				res.Servers = append(res.Servers, protocol.MCPServer{Name: s.Name, Transport: s.Transport, Status: s.Status,
+					Error: s.Error, ServerName: s.ServerName, ServerVersion: s.ServerVersion, Tools: s.Tools})
+			}
+			return res, nil
+		}),
+		protocol.MethodMCPRestart: bind(func(ctx context.Context, c *conn, p protocol.MCPRestartParams) (any, error) {
+			if err := e.MCP.Restart(p.Name); err != nil {
+				return nil, protocol.Errorf(protocol.CodeProviderError, "%v", err)
+			}
+			return okResult{true}, nil
+		}),
+		protocol.MethodToolList: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
+			res := protocol.ToolListResult{Tools: []protocol.ToolInfo{}}
+			for _, t := range e.Tools.All() {
+				src := "builtin"
+				switch {
+				case strings.HasPrefix(t.Name(), "mcp_"):
+					src = "mcp"
+				case strings.HasPrefix(t.Name(), "skill."):
+					src = "skill"
+				case strings.HasPrefix(t.Name(), "task."):
+					src = "task"
+				}
+				res.Tools = append(res.Tools, protocol.ToolInfo{Name: t.Name(), Description: t.Description(), Schema: t.Schema(), Source: src})
+			}
+			return res, nil
+		}),
+
 		// complexity
 		protocol.MethodComplexityGetDefaults: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
 			return e.ComplexityDefaults(), nil
@@ -222,4 +378,17 @@ func major(v string) string {
 		return v[:i]
 	}
 	return v
+}
+
+func skillInfo(reg *skills.Registry, sk *skills.Skill) protocol.SkillInfo {
+	info := protocol.SkillInfo{Name: sk.Name, Description: sk.Description, Version: sk.Version, Runtime: sk.Runtime.Type,
+		RiskLevel: sk.RiskLevel, Dir: sk.Dir, Error: sk.Error, Scripts: []string{}}
+	for n := range sk.Scripts {
+		info.Scripts = append(info.Scripts, n)
+	}
+	sort.Strings(info.Scripts)
+	root, _ := filepath.Abs(skills.InstallDir(reg.Config()))
+	dir, _ := filepath.Abs(sk.Dir)
+	info.Removable = filepath.Dir(dir) == root
+	return info
 }

@@ -13,6 +13,29 @@ llm:
   api_key: null              # set via env UFOUNDRY_LLM_API_KEY or Keychain
   reasoning_effort: null     # low | medium | high  (OpenAI o-series only)
 
+# Models shown in chat are configuration-led. Pools try enabled entries in
+# order and continue on quota or rate-limit failures.
+models:
+  default_complexity: auto
+  default_pool: coding
+  configured:
+    - id: claude-coding
+      name: Claude coding
+      provider: claude
+      model: claude-sonnet-4-6
+      enabled: true
+    - id: openai-coding
+      name: OpenAI coding fallback
+      provider: openai
+      model: gpt-5.2
+      enabled: true
+  pools:
+    - id: coding
+      name: Coding
+      strategy: priority
+      models: [claude-coding, openai-coding]
+      enabled: true
+
 # ---------------------------------------------------------------------------
 # Control Panel — YOUR private interface (not a user-facing connector)
 # The primary panel is the legacy single-panel field kept for backward compat.

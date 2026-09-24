@@ -45,8 +45,19 @@ Engine
   service install|uninstall|status
                                  Run the engine at login (launchd on macOS, systemd --user on Linux)
 
+Projects
+  project list [--all]           Folders the agent may work in
+  project add [PATH] [--name N] [-p P] [-m M] [-c LEVEL] [--shell=false] [--network]
+  project show ID                Folder, git state, model defaults and AGENT.md
+  project instructions ID [-f FILE|-] [--composed]
+                                 Read or write the project's AGENT.md
+  project files ID [PATH] [--depth N] | diff ID [--turn TURN] | revert TURN [PATH…]
+  project set ID [--name N] [-p P] [-m M] [-c LEVEL] [-k KEY] [--shell on|off] [--network on|off]
+  project archive ID | unarchive ID | remove ID
+
 Chat
   chat [flags] [MESSAGE]         Send a message; without MESSAGE, start an interactive session
+      --project ID  work in this project (its folder is the sandbox)
       -t THREAD   continue a thread (default: new thread)
       -p PROVIDER claude | openai | gemini | openai_compatible
       -m MODEL    model id
@@ -56,6 +67,13 @@ Chat
          archive ID | unarchive ID | delete ID | fork ID [ITEM] | export ID [-o FILE]
          set ID [-p PROVIDER] [-m MODEL] [-c LEVEL] [-k KEY]
   approvals                      List pending approvals
+
+Tasks, skills and MCP
+  task list [--all] | add (--at T | --daily HH:MM | --weekly DAY@HH:MM | --hourly M | --cron EXPR)
+       [--name N] [--tz ZONE] [-p P] [-m M] [-c LEVEL] PROMPT | cancel ID | run ID | runs ID
+  skill list | show NAME | install PATH_OR_GIT_URL [--name N] | remove NAME
+  mcp [list] | mcp restart NAME
+  tools                          List every tool the agent can use
   approve ID | deny ID           Answer an approval
 
 Models and keys
@@ -64,6 +82,10 @@ Models and keys
       budget ID USD [--hard-stop]
   model list [-p PROVIDER] [--all] | hide PROVIDER MODEL | show PROVIDER MODEL | refresh KEY
         price PROVIDER MODEL IN CACHED_IN OUT   (USD per 1M tokens)
+        configured                              The approved models and pools
+        route [-c LEVEL] [-p PROVIDER] [-m MODEL] [-k KEY] [--pool ID] [TEXT]
+                                 What the next message would run on, and its fallbacks
+        health [-clear PROVIDER MODEL KEY]      Cooldowns and how each key has been doing
   complexity [show] | default LEVEL
   usage [--by credential|model|thread|role|day] [--days N] [--key ID]
 
@@ -114,6 +136,16 @@ func main() {
 		err = runModel(rest)
 	case "complexity":
 		err = runComplexity(rest)
+	case "project", "projects":
+		err = runProject(rest)
+	case "task", "tasks":
+		err = runTask(rest)
+	case "skill", "skills":
+		err = runSkill(rest)
+	case "mcp":
+		err = runMCP(rest)
+	case "tools":
+		err = runTools()
 	case "usage":
 		err = runUsage(rest)
 	case "version", "--version", "-v":
