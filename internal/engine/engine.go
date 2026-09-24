@@ -17,6 +17,7 @@ import (
 
 	"github.com/shaktsin/ufoundry/internal/config"
 	"github.com/shaktsin/ufoundry/internal/credentials"
+	"github.com/shaktsin/ufoundry/internal/identity"
 	"github.com/shaktsin/ufoundry/internal/llm"
 	"github.com/shaktsin/ufoundry/internal/mcp"
 	"github.com/shaktsin/ufoundry/internal/models"
@@ -385,6 +386,12 @@ func (e *Engine) Providers(ctx context.Context) ([]protocol.Provider, error) {
 			DefaultModel: e.defaultModel(id), Credentials: count[id]})
 	}
 	return out, nil
+}
+
+// ProviderIdentities reports console subscription sessions without reading or
+// returning the credentials owned by Codex or Claude Code.
+func (e *Engine) ProviderIdentities(ctx context.Context) []protocol.ProviderIdentity {
+	return identity.List(ctx)
 }
 
 func (e *Engine) defaultModel(provider string) string {

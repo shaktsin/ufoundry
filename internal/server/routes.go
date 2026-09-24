@@ -179,6 +179,9 @@ func (s *Server) routes() map[string]handler {
 			ps, err := e.Providers(ctx)
 			return protocol.ProviderListResult{Providers: ps}, err
 		}),
+		protocol.MethodIdentityList: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
+			return protocol.IdentityListResult{Identities: e.ProviderIdentities(ctx)}, nil
+		}),
 		protocol.MethodModelList: bind(func(ctx context.Context, c *conn, p protocol.ModelListParams) (any, error) {
 			ms, err := e.Catalog.List(ctx, p.Provider, p.IncludeHidden)
 			if ms == nil {

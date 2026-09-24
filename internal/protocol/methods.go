@@ -27,6 +27,7 @@ const (
 	MethodApprovalRespond = "approval/respond"
 
 	MethodProviderList   = "provider/list"
+	MethodIdentityList   = "identity/list"
 	MethodModelList      = "model/list"
 	MethodModelSetHidden = "model/setHidden"
 	MethodModelRefresh   = "model/refresh"
@@ -198,6 +199,10 @@ type ApprovalListResult struct {
 
 type ProviderListResult struct {
 	Providers []Provider `json:"providers"`
+}
+
+type IdentityListResult struct {
+	Identities []ProviderIdentity `json:"identities"`
 }
 
 type ModelListParams struct {

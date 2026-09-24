@@ -4,15 +4,17 @@
   import Catalog from './settings/Catalog.svelte';
   import ComplexityTab from './settings/Complexity.svelte';
   import Engine from './settings/Engine.svelte';
+  import Providers from './settings/Providers.svelte';
 
   const tabs = [
+    { id: 'providers', label: 'Providers' },
     { id: 'keys', label: 'API keys' },
     { id: 'models', label: 'Models' },
     { id: 'catalog', label: 'Catalog' },
     { id: 'complexity', label: 'Complexity' },
     { id: 'engine', label: 'Engine & app' },
   ] as const;
-  let tab = $state<(typeof tabs)[number]['id']>('keys');
+  let tab = $state<(typeof tabs)[number]['id']>('providers');
 </script>
 
 <h1 class="page-title mb-3">Settings</h1>
@@ -25,7 +27,8 @@
   {/each}
 </div>
 
-{#if tab === 'keys'}<Keys />
+{#if tab === 'providers'}<Providers />
+{:else if tab === 'keys'}<Keys />
 {:else if tab === 'models'}<Models />
 {:else if tab === 'catalog'}<Catalog />
 {:else if tab === 'complexity'}<ComplexityTab />

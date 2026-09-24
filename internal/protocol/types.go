@@ -72,7 +72,7 @@ type Turn struct {
 	// anything it moved off and why.
 	RouteTrail []RouteStep `json:"routeTrail,omitempty"`
 	StartedAt  time.Time   `json:"startedAt"`
-	FinishedAt *time.Time     `json:"finishedAt,omitempty"`
+	FinishedAt *time.Time  `json:"finishedAt,omitempty"`
 }
 
 // Item kinds.
@@ -207,6 +207,20 @@ type Provider struct {
 	Enabled      bool   `json:"enabled"`
 	DefaultModel string `json:"defaultModel"`
 	Credentials  int    `json:"credentials"`
+}
+
+// ProviderIdentity is a subscription sign-in owned by an official model
+// runtime. It contains status and commands only, never tokens or secrets.
+type ProviderIdentity struct {
+	ID             string `json:"id"`
+	DisplayName    string `json:"displayName"`
+	RuntimeName    string `json:"runtimeName"`
+	Installed      bool   `json:"installed"`
+	SignedIn       bool   `json:"signedIn"`
+	AccountType    string `json:"accountType,omitempty"`
+	Status         string `json:"status"`
+	SignInCommand  string `json:"signInCommand"`
+	SignOutCommand string `json:"signOutCommand"`
 }
 
 // ComplexityPreset is the engine translation of one complexity level.

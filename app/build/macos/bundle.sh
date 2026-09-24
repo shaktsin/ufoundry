@@ -75,16 +75,10 @@ sed "s/__VERSION__/${VERSION#v}/g" "$APP_DIR/build/macos/Info.plist" > "$OUT/Con
 cp "$APP_DIR/build/macos/com.ufoundry.engine.plist" "$OUT/Contents/Library/LaunchAgents/"
 printf 'APPL????' > "$OUT/Contents/PkgInfo"
 
-# Icon: build an .icns from the PNG when the tools are there.
-if command -v iconutil >/dev/null && command -v sips >/dev/null; then
-    ICONSET="$TMP/appicon.iconset"; mkdir -p "$ICONSET"
-    # iconutil accepts the canonical macOS iconset names only. A standalone
-    # 64x64 entry is not part of that schema (32x32@2x already provides it).
-    for size in 16 32 128 256 512; do
-        sips -z $size $size "$APP_DIR/icons/appicon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
-        sips -z $((size * 2)) $((size * 2)) "$APP_DIR/icons/appicon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
-    done
-    iconutil -c icns "$ICONSET" -o "$OUT/Contents/Resources/appicon.icns"
+# sips can write a valid .icns directly. This is also more portable across
+# macOS releases: some iconutil versions reject otherwise canonical iconsets.
+if command -v sips >/dev/null; then
+    sips -s format icns "$APP_DIR/icons/appicon.png" --out "$OUT/Contents/Resources/appicon.icns" >/dev/null
 fi
 
 # Guard against the case-insensitivity trap coming back.
