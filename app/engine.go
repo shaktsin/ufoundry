@@ -33,11 +33,12 @@ const ServiceLabel = "com.ufoundry.engine"
 type EngineManager struct {
 	log *slog.Logger
 
-	mu     sync.Mutex
-	mode   string
-	detail string
-	child  *exec.Cmd
-	exited chan struct{}
+	ensureMu sync.Mutex
+	mu       sync.Mutex
+	mode     string
+	detail   string
+	child    *exec.Cmd
+	exited   chan struct{}
 }
 
 func NewEngineManager(log *slog.Logger) (*EngineManager, error) {
@@ -152,6 +153,10 @@ func sameFile(a, b string) bool {
 // registered background service → register the service (macOS 13+, bundled
 // app) → run it as a child process of the app.
 func (m *EngineManager) Ensure(ctx context.Context) error {
+	// The initial webview request can arrive while the app's eager startup is
+	// still in progress. Serialize both paths so they cannot launch two engines.
+	m.ensureMu.Lock()
+	defer m.ensureMu.Unlock()
 	if m.Reachable() {
 		if st := serviceStatus(); st == serviceEnabled {
 			m.setMode(ModeService, "")
@@ -216,7 +221,8 @@ func (m *EngineManager) startChild(ctx context.Context) error {
 	if err := os.MkdirAll(logDir, 0o700); err != nil {
 		return err
 	}
-	logf, err := os.OpenFile(filepath.Join(logDir, "engine.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	childLogPath := filepath.Join(logDir, "engine-child.log")
+	logf, err := os.OpenFile(childLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -259,7 +265,7 @@ func (m *EngineManager) startChild(ctx context.Context) error {
 	if !m.waitReachable(ctx, 15*time.Second) {
 		select {
 		case <-exited:
-			return fmt.Errorf("the engine exited during startup; see %s", filepath.Join(logDir, "engine.log"))
+			return fmt.Errorf("the engine exited during startup; see %s", childLogPath)
 		default:
 		}
 		return errors.New("the engine did not start listening in time")
@@ -329,7 +335,7 @@ func (m *EngineManager) InstallService(ctx context.Context) error {
 	}
 	if serviceStatus() == serviceRequiresApproval {
 		_ = m.startChild(ctx)
-		return errors.New("allow UFoundry in System Settings → General → Login Items, then try again")
+		return errors.New("allow ufoundry in System Settings → General → Login Items, then try again")
 	}
 	if !m.waitReachable(ctx, 15*time.Second) {
 		_ = m.startChild(ctx)

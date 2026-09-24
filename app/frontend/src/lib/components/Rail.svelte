@@ -1,99 +1,86 @@
 <script lang="ts">
-  import { MessageSquare, ShieldCheck, Clock, Puzzle, BarChart3, Settings, SquarePen, FolderTree, FolderOpen } from '@lucide/svelte';
+  import {
+    BarChart3,
+    Blocks,
+    FolderKanban,
+    MessageCircle,
+    PanelLeftClose,
+    PanelLeftOpen,
+    Repeat2,
+    Settings,
+    ShieldCheck,
+    SquarePen,
+  } from '@lucide/svelte';
   import { app, type View } from '$lib/stores/app.svelte';
   import { chat } from '$lib/stores/chat.svelte';
-  import { projects } from '$lib/stores/projects.svelte';
-  import ProjectSwitcher from './ProjectSwitcher.svelte';
   import ThreadList from './ThreadList.svelte';
-  import FileTree from './FileTree.svelte';
 
-  let tab = $state<'chats' | 'files'>('chats');
+  const KEY = 'ufoundry.railCollapsed';
+  let collapsed = $state(false);
+  try { collapsed = localStorage.getItem(KEY) === '1'; } catch { /* use default */ }
 
-  const nav: { id: View; label: string; icon: typeof MessageSquare }[] = [
-    { id: 'chat', label: 'Chat', icon: MessageSquare },
-    { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
-    { id: 'tasks', label: 'Tasks', icon: Clock },
-    { id: 'extensions', label: 'Skills & MCP', icon: Puzzle },
-    { id: 'usage', label: 'Usage', icon: BarChart3 },
-    { id: 'settings', label: 'Settings', icon: Settings },
+  const nav: { id: View; label: string; icon: typeof MessageCircle }[] = [
+    { id: 'chat', label: 'Chat', icon: MessageCircle },
+    { id: 'project', label: 'Project', icon: FolderKanban },
+    { id: 'extensions', label: 'Plugin', icon: Blocks },
+    { id: 'tasks', label: 'Periodic', icon: Repeat2 },
   ];
 
-  const dot = $derived(
-    app.conn === 'open' ? 'bg-sage' : app.conn === 'connecting' ? 'bg-amber-warm animate-pulse' : 'bg-rust',
-  );
+  function toggleRail() {
+    collapsed = !collapsed;
+    try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch { /* storage is optional */ }
+  }
 </script>
 
-<aside class="flex flex-col w-64 shrink-0 bg-surface border-r border-line">
-  <div class="flex items-center gap-2 px-3 h-12 border-b border-line">
-    <ProjectSwitcher />
-    <button class="btn-ghost btn-sm shrink-0" title="New chat (⌘N)" aria-label="New chat" onclick={() => chat.newChat()}>
-      <SquarePen class="w-4 h-4" />
+<aside class="app-rail {collapsed ? 'is-collapsed' : ''}">
+  <div class="rail-brand">
+    <div class="brand-mark">u</div>
+    {#if !collapsed}<span class="brand-name">ufoundry</span>{/if}
+    <button class="icon-button ml-auto" title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onclick={toggleRail}>
+      {#if collapsed}<PanelLeftOpen class="w-4 h-4" />{:else}<PanelLeftClose class="w-4 h-4" />{/if}
     </button>
   </div>
 
-  <nav class="px-2 py-2 space-y-0.5 border-b border-line">
+  <div class="px-2.5 pt-2.5">
+    <button class="new-chat-button {collapsed ? 'justify-center px-0' : ''}" title="New chat" onclick={() => chat.newChat()}>
+      <SquarePen class="w-4 h-4 shrink-0" />
+      {#if !collapsed}<span>New chat</span><kbd>⌘N</kbd>{/if}
+    </button>
+  </div>
+
+  <nav class="rail-nav" aria-label="Main navigation">
     {#each nav as item}
       {@const active = app.view === item.id}
-      <button
-        class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm transition-colors
-               {active ? 'bg-raised text-ink' : 'text-muted hover:text-ink hover:bg-raised/60'}"
-        onclick={() => (app.view = item.id)}
-      >
-        <item.icon class="w-4 h-4 shrink-0" />
-        {item.label}
-        {#if item.id === 'approvals' && app.approvals.length > 0}
-          <span class="ml-auto min-w-5 h-5 px-1 rounded-full bg-clay-soft/50 text-amber-warm text-[10px] font-bold flex items-center justify-center">
-            {app.approvals.length}
-          </span>
-        {/if}
+      <button class="rail-nav-item {active ? 'is-active' : ''} {collapsed ? 'justify-center px-0' : ''}" title={collapsed ? item.label : undefined} onclick={() => (app.view = item.id)}>
+        <item.icon class="w-[17px] h-[17px] shrink-0" strokeWidth={1.8} />
+        {#if !collapsed}<span>{item.label}</span>{/if}
       </button>
     {/each}
   </nav>
 
-  {#if projects.active}
-    <div class="flex px-2 pt-2 gap-1 text-xs">
-      <button
-        class="flex-1 flex items-center justify-center gap-1.5 py-1 rounded-md transition-colors
-               {tab === 'chats' ? 'bg-raised text-ink' : 'text-muted hover:text-ink'}"
-        onclick={() => (tab = 'chats')}
-      >
-        <MessageSquare class="w-3.5 h-3.5" />Chats
-      </button>
-      <button
-        class="flex-1 flex items-center justify-center gap-1.5 py-1 rounded-md transition-colors
-               {tab === 'files' ? 'bg-raised text-ink' : 'text-muted hover:text-ink'}"
-        onclick={() => (tab = 'files')}
-      >
-        <FolderTree class="w-3.5 h-3.5" />Files
-      </button>
-    </div>
-  {/if}
+  {#if !collapsed}<ThreadList />{:else}<div class="flex-1"></div>{/if}
 
-  {#if tab === 'files' && projects.active}
-    <FileTree />
-  {:else}
-    <ThreadList />
-  {/if}
-
-  <div class="px-3 py-2 border-t border-line flex items-center gap-2 text-[11px] text-muted">
-    <span class="w-2 h-2 rounded-full {dot}"></span>
-    {#if app.conn === 'open'}
-      {#if projects.active}
-        <button class="truncate hover:text-ink" title={projects.active.root} onclick={() => (app.view = 'project')}>
-          <FolderOpen class="w-3 h-3 inline -mt-0.5" />
-          {projects.active.vcs?.branch ?? projects.active.name}
-          {#if projects.active.vcs && projects.active.vcs.dirty > 0}
-            <span class="text-amber-warm">· {projects.active.vcs.dirty} changed</span>
-          {/if}
-        </button>
-      {:else}
-        Engine {app.status?.engineVersion ?? ''}
+  <div class="rail-footer">
+    <div class="flex items-center gap-1">
+      <button class="footer-button {app.view === 'approvals' ? 'is-active' : ''}" title="Approvals" aria-label="Approvals" onclick={() => (app.view = 'approvals')}>
+        <ShieldCheck class="w-4 h-4" strokeWidth={1.8} />
+        {#if !collapsed}<span>Approvals</span>{/if}
+        {#if app.approvals.length > 0}<span class="count-badge">{app.approvals.length}</span>{/if}
+      </button>
+      {#if !collapsed}
+        <button class="icon-button ml-auto" title="Usage" aria-label="Usage" onclick={() => (app.view = 'usage')}><BarChart3 class="w-4 h-4" strokeWidth={1.8} /></button>
+        <button class="icon-button" title="Settings" aria-label="Settings" onclick={() => (app.view = 'settings')}><Settings class="w-4 h-4" strokeWidth={1.8} /></button>
       {/if}
-      {#if app.status && app.status.activeTurns > 0}<span class="ml-auto">{app.status.activeTurns} working</span>{/if}
-    {:else if app.conn === 'connecting'}
-      Connecting…
+    </div>
+    {#if collapsed}
+      <button class="footer-button justify-center" title="Usage" aria-label="Usage" onclick={() => (app.view = 'usage')}><BarChart3 class="w-4 h-4" /></button>
+      <button class="footer-button justify-center" title="Settings" aria-label="Settings" onclick={() => (app.view = 'settings')}><Settings class="w-4 h-4" /></button>
     {:else}
-      Engine offline
+      <div class="engine-line">
+        <span class="engine-indicator" class:is-online={app.conn === 'open'} class:is-connecting={app.conn === 'connecting'}></span>
+        <span>{app.conn === 'open' ? 'Engine online' : app.conn === 'connecting' ? 'Connecting' : 'Engine offline'}</span>
+        {#if app.status && app.status.activeTurns > 0}<span class="ml-auto">{app.status.activeTurns} running</span>{/if}
+      </div>
     {/if}
   </div>
 </aside>

@@ -68,7 +68,7 @@
 </script>
 
 <div class="flex items-center mb-4">
-  <h1 class="page-title">Skills & MCP</h1>
+  <h1 class="page-title">Plugins</h1>
   <button class="btn-ghost btn-sm ml-2" aria-label="Refresh" onclick={load}><RefreshCw class="w-3.5 h-3.5" /></button>
 </div>
 
@@ -80,7 +80,7 @@
     <button class="btn-primary" disabled={installing || !source.trim()} onclick={install}><Download class="w-4 h-4" />{installing ? 'Installing…' : 'Install'}</button>
   </div>
   {#if skills.length === 0}
-    <p class="text-sm text-muted">No skills installed. Skill folders: {dirs.join(', ') || '—'}</p>
+    <p class="text-sm text-muted">No skills installed. Skill folders: {dirs.join(', ') || 'none'}</p>
   {/if}
   <div class="grid gap-2">
     {#each skills as s (s.name + s.dir)}

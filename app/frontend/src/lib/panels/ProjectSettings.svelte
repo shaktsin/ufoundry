@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderGit2, AlertTriangle, Save, Trash2 } from '@lucide/svelte';
+  import { FolderGit2, AlertTriangle, Plus, Save, Trash2 } from '@lucide/svelte';
   import { projects } from '$lib/stores/projects.svelte';
   import { chat } from '$lib/stores/chat.svelte';
   import { inspector } from '$lib/stores/inspector.svelte';
@@ -65,10 +65,42 @@
       app.view = 'chat';
     }
   }
+
+  async function addProject() {
+    const path = await dialog.prompt('Which folder should the agent work in?', { okLabel: 'Open folder' });
+    if (path?.trim()) await projects.add(path.trim());
+  }
 </script>
 
 {#if !p}
-  <p class="text-sm text-muted">No project is open. Pick one from the switcher at the top left.</p>
+  <div class="flex items-center gap-3 mb-5">
+    <div>
+      <h1 class="page-title">Projects</h1>
+      <p class="text-xs text-muted mt-1">Each project is a folder with its own chats, tools, and instructions.</p>
+    </div>
+    <button class="btn-primary ml-auto" onclick={addProject}><Plus class="w-4 h-4" />Open folder</button>
+  </div>
+  {#if projects.list.length === 0}
+    <div class="card p-10 text-center">
+      <FolderGit2 class="w-8 h-8 mx-auto text-muted mb-3" />
+      <p class="text-sm text-ink-soft">No projects yet</p>
+      <p class="text-xs text-muted mt-1">Open a folder to give the agent a safe workspace.</p>
+    </div>
+  {:else}
+    <div class="grid grid-cols-2 gap-3">
+      {#each projects.list as project (project.id)}
+        <button class="card p-4 text-left hover:border-accent transition-colors" onclick={() => projects.open(project.id)}>
+          <div class="flex items-center gap-2">
+            <FolderGit2 class="w-4 h-4 text-accent" />
+            <span class="font-medium text-sm truncate">{project.name}</span>
+            <span class="ml-auto text-xs text-muted">{project.threads} chats</span>
+          </div>
+          <p class="text-[11px] text-muted font-mono truncate mt-2">{project.root}</p>
+          {#if project.vcs?.branch}<p class="text-[11px] text-faint mt-1">branch {project.vcs.branch}</p>{/if}
+        </button>
+      {/each}
+    </div>
+  {/if}
 {:else}
   <div class="flex items-center gap-3 mb-5">
     <div class="w-9 h-9 rounded-lg bg-clay text-white flex items-center justify-center font-semibold">

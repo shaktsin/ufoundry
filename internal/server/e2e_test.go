@@ -532,13 +532,14 @@ func TestProjectMethods(t *testing.T) {
 	// Listing, opening and instructions.
 	var list protocol.ProjectListResult
 	h.call(protocol.MethodProjectList, protocol.ProjectListParams{}, &list)
-	if len(list.Projects) != 1 || list.Projects[0].Root != h.ws {
+	resolvedWS, _ := filepath.EvalSymlinks(h.ws)
+	if len(list.Projects) != 1 || list.Projects[0].Root != resolvedWS {
 		t.Fatalf("projects = %+v", list.Projects)
 	}
 	var ins protocol.ProjectInstructionsResult
 	text := "Run the tests with `make test`."
 	h.call(protocol.MethodProjectInstructions, protocol.ProjectInstructionsParams{ProjectID: h.proj.ID, Content: &text}, &ins)
-	if ins.Path != filepath.Join(h.ws, "AGENT.md") || !strings.Contains(ins.Composed, "make test") {
+	if ins.Path != filepath.Join(resolvedWS, "AGENT.md") || !strings.Contains(ins.Composed, "make test") {
 		t.Fatalf("instructions = %+v", ins)
 	}
 	// A repo written for Codex or Claude Code works unchanged.

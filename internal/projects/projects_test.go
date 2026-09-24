@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/ufoundry/internal/pathutil"
 	"github.com/shaktsin/ufoundry/internal/protocol"
 	"github.com/shaktsin/ufoundry/internal/store"
 )
@@ -34,7 +35,7 @@ func TestCreateAndGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != filepath.Base(root) || p.Root != root {
+	if p.Name != filepath.Base(root) || p.Root != pathutil.Resolved(root) {
 		t.Fatalf("project = %+v", p)
 	}
 	if _, err := svc.Create(ctx, protocol.ProjectCreateParams{Root: root}); err == nil ||
@@ -125,7 +126,7 @@ func TestInstructionsComposition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Path != filepath.Join(root, "AGENT.md") || !strings.Contains(res.Composed, "written by the app") {
+	if res.Path != filepath.Join(pathutil.Resolved(root), "AGENT.md") || !strings.Contains(res.Composed, "written by the app") {
 		t.Fatalf("instructions = %+v", res)
 	}
 }
@@ -255,8 +256,8 @@ func TestProjectRootReachedThroughASymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Root != real {
-		t.Fatalf("root = %q, want the resolved %q", p.Root, real)
+	if p.Root != pathutil.Resolved(real) {
+		t.Fatalf("root = %q, want the resolved %q", p.Root, pathutil.Resolved(real))
 	}
 	// The same folder by its other name is the same project.
 	if _, err := svc.Create(ctx, protocol.ProjectCreateParams{Root: real}); err == nil ||

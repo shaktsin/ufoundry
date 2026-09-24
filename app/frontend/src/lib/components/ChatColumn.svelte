@@ -39,6 +39,7 @@
   });
 
   const hasKeys = $derived(app.credentials.some((c) => c.enabled));
+  const threadProject = $derived(projects.list.find((p) => p.id === view.thread?.projectId));
 
   function onScroll() {
     if (!scroller) return;
@@ -97,11 +98,24 @@
 
 <div class="flex-1 min-h-0 flex flex-col">
   {#if variant === 'main'}
-    <header class="h-12 shrink-0 border-b border-line flex items-center px-4 gap-3">
-      <h1 class="text-sm font-medium truncate">{view.title}</h1>
+    <header class="min-h-14 shrink-0 border-b border-line flex items-center px-5 gap-3 bg-paper/90">
+      <div class="min-w-0">
+        <h1 class="text-sm font-semibold truncate tracking-[-0.01em]">{view.title}</h1>
+        <div class="flex items-center gap-2 mt-0.5 text-[10px] text-muted min-w-0">
+          {#if threadProject}
+            <span class="font-medium text-ink-soft shrink-0">{threadProject.name}</span>
+            <span class="font-mono truncate" title={threadProject.root}>{threadProject.root}</span>
+            {#if threadProject.vcs?.branch}<span class="shrink-0">branch {threadProject.vcs.branch}</span>{/if}
+            <span class="shrink-0">{threadProject.tools.shell === false ? 'shell off' : 'shell on'}</span>
+            <span class="shrink-0">{threadProject.tools.network ? 'network on' : 'network off'}</span>
+          {:else}
+            <span>No project</span><span>read-only workspace</span>
+          {/if}
+        </div>
+      </div>
       {#if view.thread?.usage?.requests}
         <span class="ml-auto text-[11px] text-muted" title="Tokens and cost for this chat">
-          {fmtUsd(view.thread.usage.costUsd)} · {view.thread.usage.requests} requests
+          {fmtUsd(view.thread.usage.costUsd)} / {view.thread.usage.requests} requests
         </span>
       {/if}
     </header>

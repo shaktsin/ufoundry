@@ -110,7 +110,7 @@ func TestWithinAndSameFolder(t *testing.T) {
 func TestResolvedHandlesMissingPaths(t *testing.T) {
 	link, real := symlinkedRoot(t)
 	missing := filepath.Join(link, "does", "not", "exist.txt")
-	want := filepath.Join(real, "does", "not", "exist.txt")
+	want := filepath.Join(Resolved(real), "does", "not", "exist.txt")
 	if got := Resolved(missing); got != want {
 		t.Errorf("Resolved(%q) = %q, want %q", missing, got, want)
 	}

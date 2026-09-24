@@ -157,24 +157,20 @@ class ChatState {
     if (this.main.id) await this.main.load(this.main.id);
   }
 
-  /** Chats of the open project (or the loose ones when no project is open). */
+  /** All chats, grouped by project in the rail. */
   async loadThreads() {
     try {
       const params: Record<string, unknown> = { archived: this.showArchived, limit: 200 };
-      if (projects.activeId) params.projectId = projects.activeId;
       const r = await app.call<{ threads: Thread[] }>('thread/list', params);
-      let list = r.threads ?? [];
-      if (!projects.activeId) list = list.filter((t) => !t.projectId);
-      this.threads = sortThreads(list);
+      this.threads = sortThreads(r.threads ?? []);
     } catch (e) {
       app.toast('error', errMsg(e));
     }
   }
 
   private upsertThread(t: Thread) {
-    const mine = projects.activeId ? t.projectId === projects.activeId : !t.projectId;
     const rest = this.threads.filter((x) => x.id !== t.id);
-    this.threads = sortThreads(mine && t.archived === this.showArchived ? [...rest, t] : rest);
+    this.threads = sortThreads(t.archived === this.showArchived ? [...rest, t] : rest);
     if (this.main.id === t.id) this.main.thread = t;
     for (const s of this.sides) if (s.id === t.id) s.thread = t;
   }
@@ -191,13 +187,23 @@ class ChatState {
 
   async open(id: string, highlightItem?: string) {
     app.view = 'chat';
+    const known = this.threads.find((t) => t.id === id);
+    const targetProject = known?.projectId ?? null;
+    if (known && projects.activeId !== targetProject) await projects.open(targetProject);
     this.main.highlightItem = highlightItem ?? null;
     await this.main.load(id);
+    const loadedProject = this.main.thread?.projectId ?? null;
+    if (projects.activeId !== loadedProject) await projects.open(loadedProject);
   }
 
   newChat() {
     app.view = 'chat';
     this.main.reset();
+  }
+
+  async newChatFor(projectId: string | null) {
+    if (projects.activeId !== projectId) await projects.open(projectId);
+    this.newChat();
   }
 
   /** Send in the main chat, creating the thread in the open project on first send. */

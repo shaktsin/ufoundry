@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>UFoundry</string>
+    <string>ufoundry</string>
     <key>CFBundleDisplayName</key>
-    <string>UFoundry</string>
+    <string>ufoundry</string>
     <key>CFBundleExecutable</key>
-    <string>UFoundry</string>
+    <string>ufoundry</string>
     <key>CFBundleIdentifier</key>
     <string>com.ufoundry.app</string>
     <key>CFBundlePackageType</key>
@@ -26,8 +26,8 @@
     <key>LSUIElement</key>
     <false/>
     <key>NSHumanReadableCopyright</key>
-    <string>UFoundry</string>
+    <string>ufoundry</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>UFoundry uses AppleScript to install the ufoundry command-line tool.</string>
+    <string>ufoundry uses AppleScript to install the command-line tool.</string>
 </dict>
 </plist>

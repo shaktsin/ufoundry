@@ -38,9 +38,9 @@ export function relTime(iso: string | undefined): string {
 }
 
 export function fmtDateTime(iso: string | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const d = new Date(iso);
-  if (!d.getTime()) return '—';
+  if (!d.getTime()) return '-';
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 

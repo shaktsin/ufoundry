@@ -58,7 +58,7 @@
 <div class="card p-4 mb-4">
   <h2 class="text-sm font-semibold mb-3">Engine</h2>
   <dl class="grid grid-cols-[10rem_1fr] gap-y-1.5 text-sm">
-    <dt class="text-muted">Connection</dt><dd>{app.conn}{app.connError ? ` — ${app.connError}` : ''}</dd>
+    <dt class="text-muted">Connection</dt><dd>{app.conn}{app.connError ? ` - ${app.connError}` : ''}</dd>
     {#if app.status}
       <dt class="text-muted">Version</dt><dd>{app.status.engineVersion} (protocol {app.status.protocolVersion})</dd>
       <dt class="text-muted">Running since</dt><dd>{fmtDateTime(app.status.startedAt)}</dd>
@@ -67,7 +67,7 @@
       <dt class="text-muted">Database</dt><dd class="font-mono text-xs selectable">{app.status.dbPath}</dd>
     {/if}
     {#if shell}
-      <dt class="text-muted">Runs as</dt><dd>{modeText[shell.engineMode] ?? shell.engineMode}{shell.engineDetail ? ` — ${shell.engineDetail}` : ''}</dd>
+      <dt class="text-muted">Runs as</dt><dd>{modeText[shell.engineMode] ?? shell.engineMode}{shell.engineDetail ? ` - ${shell.engineDetail}` : ''}</dd>
       <dt class="text-muted">Data folder</dt><dd class="font-mono text-xs selectable">{shell.homeDir}</dd>
     {/if}
   </dl>
@@ -90,7 +90,7 @@
     <h2 class="text-sm font-semibold mb-3">App</h2>
     <div class="space-y-3 text-sm">
       <div class="flex items-center">
-        <div><div>Open UFoundry at login</div><div class="text-xs text-muted">Starts in the menu bar without a window.</div></div>
+        <div><div>Open ufoundry at login</div><div class="text-xs text-muted">Starts in the menu bar without a window.</div></div>
         <input class="ml-auto" type="checkbox" checked={shell.launchAtLogin} disabled={!shell.launchAtLoginSupported || !!busy}
           onchange={(e) => action('setLaunchAtLogin', { enabled: e.currentTarget.checked })} />
       </div>
@@ -101,7 +101,7 @@
         </div>
         <button class="btn-outline btn-sm ml-auto" disabled={!!busy} onclick={() => action('installCLI')}>{shell.cliInstalled ? 'Reinstall' : 'Install'}</button>
       </div>
-      <div class="text-xs text-muted">UFoundry {shell.appVersion}</div>
+      <div class="text-xs text-muted">ufoundry {shell.appVersion}</div>
     </div>
   </div>
 {:else if app.shell !== 'mac'}

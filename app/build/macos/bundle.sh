@@ -49,26 +49,28 @@ trap 'rm -rf "$TMP"' EXIT
 
 echo "==> Engine and app binaries ($( ((UNIVERSAL)) && echo "arm64 + amd64" || echo "$(uname -m)" ))"
 if ((UNIVERSAL)); then
-    build_engine arm64 "$TMP/ufoundry-arm64"
-    build_engine amd64 "$TMP/ufoundry-amd64"
-    lipo -create -output "$TMP/ufoundry" "$TMP/ufoundry-arm64" "$TMP/ufoundry-amd64"
-    build_app arm64 "$TMP/UFoundry-arm64"
-    build_app amd64 "$TMP/UFoundry-amd64"
-    lipo -create -output "$TMP/UFoundry" "$TMP/UFoundry-arm64" "$TMP/UFoundry-amd64"
+    build_engine arm64 "$TMP/engine-arm64"
+    build_engine amd64 "$TMP/engine-amd64"
+    lipo -create -output "$TMP/engine-bin" "$TMP/engine-arm64" "$TMP/engine-amd64"
+    build_app arm64 "$TMP/app-arm64"
+    build_app amd64 "$TMP/app-amd64"
+    lipo -create -output "$TMP/app-bin" "$TMP/app-arm64" "$TMP/app-amd64"
 else
     ARCH="$(uname -m)"; [[ "$ARCH" == "x86_64" ]] && ARCH=amd64 || ARCH=arm64
-    build_engine "$ARCH" "$TMP/ufoundry"
-    build_app "$ARCH" "$TMP/UFoundry"
+    # Never use names that differ only by case here. The default macOS file
+    # system is case-insensitive, so `ufoundry` and `UFoundry` are one file.
+    build_engine "$ARCH" "$TMP/engine-bin"
+    build_app "$ARCH" "$TMP/app-bin"
 fi
 
 echo "==> Bundle"
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources" "$OUT/Contents/Library/LaunchAgents"
-cp "$TMP/UFoundry" "$OUT/Contents/MacOS/UFoundry"
+cp "$TMP/app-bin" "$OUT/Contents/MacOS/UFoundry"
 # The engine goes in Resources, not next to the app binary: the Mac's file
 # system ignores case, so Contents/MacOS/ufoundry and .../UFoundry would be the
 # same file and the engine would overwrite the app.
-cp "$TMP/ufoundry" "$OUT/Contents/Resources/ufoundry"
+cp "$TMP/engine-bin" "$OUT/Contents/Resources/ufoundry"
 sed "s/__VERSION__/${VERSION#v}/g" "$APP_DIR/build/macos/Info.plist" > "$OUT/Contents/Info.plist"
 cp "$APP_DIR/build/macos/com.ufoundry.engine.plist" "$OUT/Contents/Library/LaunchAgents/"
 printf 'APPL????' > "$OUT/Contents/PkgInfo"
@@ -84,8 +86,16 @@ if command -v iconutil >/dev/null && command -v sips >/dev/null; then
 fi
 
 # Guard against the case-insensitivity trap coming back.
-if ! cmp -s "$TMP/UFoundry" "$OUT/Contents/MacOS/UFoundry"; then
+if ! cmp -s "$TMP/app-bin" "$OUT/Contents/MacOS/UFoundry"; then
     echo "The app binary in the bundle is not the app; check where the engine was copied." >&2
+    exit 1
+fi
+if cmp -s "$OUT/Contents/MacOS/UFoundry" "$OUT/Contents/Resources/ufoundry"; then
+    echo "The app and engine binaries are identical; the bundle is invalid." >&2
+    exit 1
+fi
+if ! "$OUT/Contents/Resources/ufoundry" version | grep -q '^ufoundry '; then
+    echo "The bundled engine does not identify itself as the ufoundry CLI." >&2
     exit 1
 fi
 

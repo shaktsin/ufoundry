@@ -83,9 +83,9 @@
               <td class="text-right"><input class="input w-20 text-right py-1" bind:value={price.out} /></td>
               <td class="text-right whitespace-nowrap"><button class="btn-ghost btn-sm" onclick={() => (editing = null)}>Cancel</button><button class="btn-primary btn-sm" onclick={() => savePrice(m)}>Save</button></td>
             {:else}
-              <td class="text-right text-muted">{m.inputPerMTok ? `$${m.inputPerMTok}` : '—'}</td>
-              <td class="text-right text-muted">{m.cachedInputPerMTok ? `$${m.cachedInputPerMTok}` : '—'}</td>
-              <td class="text-right text-muted">{m.outputPerMTok ? `$${m.outputPerMTok}` : '—'}</td>
+              <td class="text-right text-muted">{m.inputPerMTok ? `$${m.inputPerMTok}` : '-'}</td>
+              <td class="text-right text-muted">{m.cachedInputPerMTok ? `$${m.cachedInputPerMTok}` : '-'}</td>
+              <td class="text-right text-muted">{m.outputPerMTok ? `$${m.outputPerMTok}` : '-'}</td>
               <td class="text-right whitespace-nowrap">
                 <button class="btn-ghost btn-sm" onclick={() => edit(m)}>Edit price</button>
                 <button class="btn-ghost btn-sm" title={m.hidden ? 'Show in picker' : 'Hide from picker'} aria-label={m.hidden ? 'Show' : 'Hide'} onclick={() => setHidden(m, !m.hidden)}>

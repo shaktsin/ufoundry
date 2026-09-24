@@ -49,7 +49,7 @@ func main() {
 	shell := &Shell{Engine: eng, Log: logger}
 
 	app := application.New(application.Options{
-		Name:        "UFoundry",
+		Name:        "ufoundry",
 		Description: "Your personal AI agent",
 		Logger:      logger,
 		Services:    []application.Service{application.NewService(notifier)},
@@ -75,7 +75,7 @@ func main() {
 
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
-		Title:            "UFoundry",
+		Title:            "ufoundry",
 		Width:            1180,
 		Height:           780,
 		MinWidth:         760,
@@ -107,16 +107,25 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// Start the engine and the admin connection right away, rather than from an
-	// application event: which events fire, and when, differs per platform, and
-	// a missed one would leave the app sitting there with no engine.
+	// Start the engine immediately, independently of Wails lifecycle events. Do
+	// not touch Wails UI objects from this goroutine: its main-thread dispatcher
+	// is not ready until ApplicationStarted and InvokeAsync would panic.
+	engineReady := make(chan error, 1)
 	go func() {
-		if err := eng.Ensure(ctx); err != nil {
+		err := eng.Ensure(ctx)
+		if err != nil {
 			logger.Error("engine start", "err", err)
-			shell.SetStatus(StatusOffline, err.Error())
 		}
-		watcher.Run(ctx)
+		engineReady <- err
 	}()
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		go func() {
+			if err := <-engineReady; err != nil {
+				shell.SetStatus(StatusOffline, err.Error())
+			}
+			watcher.Run(ctx)
+		}()
+	})
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

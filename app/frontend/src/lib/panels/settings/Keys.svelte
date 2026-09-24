@@ -149,7 +149,7 @@
             onclick={() => !c.isDefault && update(c, { isDefault: true })}
           ><Star class="w-4 h-4 {c.isDefault ? 'fill-current' : ''}" /></button>
           <div class="flex-1 min-w-0">
-            <div class="text-sm text-ink">{c.label} <span class="font-mono text-xs text-muted">····{c.last4 || '—'}</span></div>
+            <div class="text-sm text-ink">{c.label} <span class="font-mono text-xs text-muted">••••{c.last4 || '-'}</span></div>
             <div class="text-[11px] text-muted">
               {#if c.baseUrl}<span class="font-mono">{c.baseUrl}</span> · {/if}
               This month {fmtUsd(c.monthUsage?.costUsd)}{c.monthlyBudgetUsd ? ` of ${fmtUsd(c.monthlyBudgetUsd)}` : ''}

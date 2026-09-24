@@ -11,7 +11,7 @@
 
 <div class="px-3 py-2 {compact ? 'border-t border-clay/30' : ''} bg-clay-soft/20 flex flex-wrap items-center gap-2">
   <span class="text-amber-warm flex-1 min-w-40 selectable">
-    {approval.actionSummary || `Run ${approval.tool}`}{approval.reason ? ` — ${approval.reason}` : ''}
+    {approval.actionSummary || `Run ${approval.tool}`}{approval.reason ? ` - ${approval.reason}` : ''}
   </span>
   {#if canRemember}
     <label class="flex items-center gap-1.5 text-[11px] text-muted" title="Answer the same way next time in this project">

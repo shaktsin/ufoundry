@@ -99,7 +99,7 @@
 </script>
 
 <div class="flex items-center gap-3 mb-4">
-  <h1 class="page-title">Scheduled tasks</h1>
+  <h1 class="page-title">Periodic</h1>
   <select class="select" bind:value={filter}>
     <option value="active">Active</option>
     <option value="">All</option>

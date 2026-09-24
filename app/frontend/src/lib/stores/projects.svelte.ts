@@ -82,6 +82,12 @@ class ProjectStore {
     await this.loadDir('');
   }
 
+  async rename(id: string, name: string) {
+    name = name.trim();
+    if (!name) return;
+    await this.update(id, { name });
+  }
+
   async add(root: string, name?: string): Promise<Project | undefined> {
     const p = await app.try<Project>('project/create', { root, name });
     if (!p) return;

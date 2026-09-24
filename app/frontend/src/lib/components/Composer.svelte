@@ -91,7 +91,7 @@
         ? 'Ask about this…'
         : projects.active
           ? `Ask about ${projects.active.name}…`
-          : 'Ask anything — open a project to make changes',
+          : 'Ask anything. Open a project to make changes',
   );
 </script>
 
