@@ -329,3 +329,24 @@ func monthStart(t time.Time) time.Time {
 	y, m, _ := t.Date()
 	return time.Date(y, m, 1, 0, 0, 0, 0, t.Location())
 }
+
+// Usable returns a provider's enabled keys with their secrets, the default
+// first — the set the router may choose between.
+func (s *Service) Usable(ctx context.Context, provider string) ([]Resolved, error) {
+	creds, err := s.st.ListCredentials(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	var out []Resolved
+	for _, c := range creds { // ordered default first
+		if !c.Enabled {
+			continue
+		}
+		m, err := s.material(c)
+		if err != nil {
+			continue // a key whose secret has gone missing is simply not offered
+		}
+		out = append(out, Resolved{c, m})
+	}
+	return out, nil
+}

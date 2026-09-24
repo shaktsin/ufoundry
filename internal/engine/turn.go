@@ -15,6 +15,7 @@ import (
 	"github.com/shaktsin/ufoundry/internal/models"
 	"github.com/shaktsin/ufoundry/internal/policy"
 	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/ufoundry/internal/router"
 	"github.com/shaktsin/ufoundry/internal/store"
 	"github.com/shaktsin/ufoundry/internal/tools"
 )
@@ -22,13 +23,25 @@ import (
 // historyLimit caps how many prior messages are sent with a turn.
 const historyLimit = 60
 
-// resolved is the concrete choice for a turn.
+// resolved is the concrete choice for a turn: the route being used now, and
+// the ones the router lined up behind it.
 type resolved struct {
 	sel    protocol.ModelSelection // what is used
 	auto   bool                    // complexity picked by Auto
 	preset protocol.ComplexityPreset
 	meta   models.Meta
 	cred   credentials.Resolved
+	route  router.Route
+	plan   *router.Plan
+	trail  []protocol.RouteStep
+}
+
+// use points the resolved selection at a route.
+func (r *resolved) use(rt router.Route) {
+	r.route = rt
+	r.cred = rt.Cred
+	r.meta = rt.Meta
+	r.sel.Provider, r.sel.Model, r.sel.CredentialID = rt.Provider, rt.Model, rt.Cred.Record.ID
 }
 
 // resolveSelection applies turn override > thread settings > defaults.
@@ -61,10 +74,6 @@ func (e *Engine) resolveSelection(ctx context.Context, th protocol.Thread, o pro
 	if credID == "" && ts.Provider == provider {
 		credID = ts.CredentialID
 	}
-	cred, err := e.Creds.Resolve(ctx, provider, credID)
-	if err != nil {
-		return r, err
-	}
 
 	e.mu.Lock()
 	cplx := firstNonEmpty(string(o.Complexity), string(ts.Complexity), string(e.defaultCplx))
@@ -80,9 +89,34 @@ func (e *Engine) resolveSelection(ctx context.Context, th protocol.Thread, o pro
 		preset = presets[protocol.ComplexityStandard]
 	}
 	r.preset = preset
-	r.meta = e.Catalog.Lookup(ctx, provider, model)
-	r.cred = cred
-	r.sel = protocol.ModelSelection{Provider: provider, Model: model, Complexity: level, CredentialID: cred.Record.ID}
+	r.sel = protocol.ModelSelection{Complexity: level}
+
+	// The router turns the pins and the level into an ordered list of routes:
+	// what to run now, and what to fall back to if it fails.
+	pinned := protocol.ModelSelection{Complexity: level, CredentialID: credID}
+	if o.Provider != "" || ts.Provider != "" || o.Model != "" || ts.Model != "" {
+		pinned.Provider, pinned.Model = provider, model
+	}
+	plan, err := e.Router.Plan(ctx, router.Request{
+		Pinned: pinned,
+		Level:  level,
+		Need: router.Capabilities{
+			Tools:  true,
+			Images: attachments > 0,
+		},
+	})
+	if err != nil {
+		return r, err
+	}
+	first, hasRoute := plan.Next()
+	if !hasRoute {
+		if plan.Reason != "" {
+			return r, errors.New(plan.Reason)
+		}
+		return r, router.ErrNoRoute
+	}
+	r.plan = plan
+	r.use(first)
 	return r, nil
 }
 
@@ -287,7 +321,6 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 		req.Reasoning, req.ReasoningStyle = res.preset.Reasoning, res.meta.ReasoningStyle
 	}
 
-	cred := res.cred
 	var turnErr error
 	steps := 0
 	for {
@@ -296,8 +329,7 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 			break
 		}
 		req.Messages = msgs
-		out, usedCred, err := e.callModel(ctx, sctx, turn, res, cred, req, "chat")
-		cred = usedCred
+		out, err := e.callModel(ctx, sctx, turn, &res, req, "chat")
 		if err != nil {
 			turnErr = err
 			break
@@ -324,6 +356,12 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 	if turnErr != nil {
 		log.Warn("turn failed", "err", turnErr)
 	}
+	if len(res.trail) > 0 {
+		turn.RouteTrail = res.trail
+		if err := e.Store.SetTurnRoutes(sctx, turn.ID, res.trail); err != nil {
+			log.Warn("could not record which models the turn used", "err", err)
+		}
+	}
 	e.finishTurn(sctx, th, turn, turnErr, release)
 }
 
@@ -340,35 +378,88 @@ type modelOutput struct {
 	calls    []llm.ToolCall
 }
 
-// callModel streams one model call, publishing items and recording usage. On a
-// rate-limit error it retries with fallback keys for the same provider.
-func (e *Engine) callModel(ctx, sctx context.Context, turn protocol.Turn, res resolved, cred credentials.Resolved,
-	req llm.Request, role string) (modelOutput, credentials.Resolved, error) {
-	provider, _ := e.LLMs.Get(res.sel.Provider)
-	tried := map[string]bool{}
+// callModel streams one model call, publishing items and recording usage. When
+// a route fails in a way another route could survive — a rate limit, an outage,
+// a revoked key, a prompt too long for the window — it moves down the router's
+// plan and says so, rather than failing the turn.
+func (e *Engine) callModel(ctx, sctx context.Context, turn protocol.Turn, res *resolved,
+	req llm.Request, role string) (modelOutput, error) {
 	for {
-		tried[cred.Record.ID] = true
-		if err := e.checkBudget(sctx, cred.Record); err != nil {
-			return modelOutput{}, cred, err
+		if err := e.checkBudget(sctx, res.cred.Record); err != nil {
+			return modelOutput{}, err
 		}
-		out, err := e.streamOnce(ctx, sctx, turn, res, cred, provider, req, role)
-		if err == nil || !llm.IsRateLimit(err) {
-			return out, cred, err
+		provider, ok := e.LLMs.Get(res.sel.Provider)
+		if !ok {
+			return modelOutput{}, fmt.Errorf("unknown provider %q", res.sel.Provider)
 		}
-		fbs, _ := e.Creds.Fallbacks(sctx, res.sel.Provider, cred.Record.ID)
-		next := -1
-		for i, fb := range fbs {
-			if !tried[fb.Record.ID] {
-				next = i
-				break
-			}
+		req.Model = res.sel.Model
+		if res.meta.Reasoning && res.preset.Reasoning != llm.ReasoningOff {
+			req.Reasoning, req.ReasoningStyle = res.preset.Reasoning, res.meta.ReasoningStyle
+		} else {
+			req.Reasoning, req.ReasoningStyle = "", ""
 		}
-		if next < 0 {
-			return out, cred, err
+		start := time.Now()
+		out, err := e.streamOnce(ctx, sctx, turn, *res, res.cred, provider, req, role)
+		if err == nil {
+			e.Router.Succeeded(sctx, res.route, time.Since(start))
+			res.trail = append(res.trail, step(res.route, "used", "", time.Since(start)))
+			return out, nil
 		}
-		e.Log.Info("rate limited; retrying with fallback key", "from", cred.Record.Label, "to", fbs[next].Record.Label)
-		cred = fbs[next]
+		if ctx.Err() != nil {
+			return out, err
+		}
+		status := e.Router.Failed(sctx, res.route, err)
+		res.trail = append(res.trail, step(res.route, status, err.Error(), time.Since(start)))
+		if !router.Retryable(err) || res.plan == nil {
+			return out, err
+		}
+		next, ok := res.plan.Next()
+		if !ok {
+			return out, fmt.Errorf("%w (no other model was available)", err)
+		}
+		from := res.route
+		res.use(next)
+		e.Log.Info("switching route", "from", from.Model, "to", next.Model, "why", status, "turn", turn.ID)
+		e.Bus.Publish(turn.ThreadID, protocol.NotifyRouteChanged, protocol.RouteChangedEvent{
+			ThreadID: turn.ThreadID, TurnID: turn.ID, From: from.Info(), To: next.Info(), Reason: status,
+		})
+		if it, ierr := e.newItem(sctx, turn, protocol.ItemInboundEvent); ierr == nil {
+			it.Status = protocol.ItemCompleted
+			it.Text = switchNote(from, next, status)
+			_ = e.saveAndPublish(sctx, it, protocol.NotifyItemCompleted)
+		}
 	}
+}
+
+// step records one attempt for the turn's trail.
+func step(rt router.Route, status, errMsg string, took time.Duration) protocol.RouteStep {
+	return protocol.RouteStep{RouteInfo: rt.Info(), At: time.Now().UTC(), Status: status,
+		Error: errMsg, Latency: took.Milliseconds()}
+}
+
+// switchNote is the line the chat shows when the router moves a turn.
+func switchNote(from, to router.Route, status string) string {
+	name := func(r router.Route) string {
+		if r.Meta.DisplayName != "" {
+			return r.Meta.DisplayName
+		}
+		return r.Model
+	}
+	reason := map[string]string{
+		"rate_limited":     "a rate limit",
+		"server_error":     "a provider error",
+		"unauthorized":     "a key that was refused",
+		"timeout":          "a timeout",
+		"context_too_long": "a prompt too long for its context window",
+		"unknown_model":    "the model being unavailable",
+	}[status]
+	if reason == "" {
+		reason = "an error"
+	}
+	if from.Model == to.Model {
+		return fmt.Sprintf("Switched to the key %s after %s on %s.", to.Cred.Record.Label, reason, from.Cred.Record.Label)
+	}
+	return fmt.Sprintf("Switched to %s after %s on %s.", name(to), reason, name(from))
 }
 
 func (e *Engine) streamOnce(ctx, sctx context.Context, turn protocol.Turn, res resolved, cred credentials.Resolved,

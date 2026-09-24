@@ -174,6 +174,16 @@ func (h *harness) call(method string, params, out any) {
 	}
 }
 
+// callErr makes a call that is expected to be refused and returns the error.
+func (h *harness) callErr(method string, params any) error {
+	h.t.Helper()
+	err := h.c.Call(h.ctx, method, params, nil)
+	if err == nil {
+		h.t.Fatalf("%s: expected an error", method)
+	}
+	return err
+}
+
 // waitTurn consumes notifications until the turn completes. onApproval decides approvals.
 func (h *harness) waitTurn(turnID string, onApproval func(protocol.Approval) bool) (protocol.Turn, string, []protocol.Item) {
 	h.t.Helper()
@@ -365,13 +375,20 @@ func TestBudgetHardStopAndFallback(t *testing.T) {
 		t.Fatalf("per-key usage = %+v", byKey)
 	}
 
-	// Hard stop: a tiny budget already spent blocks the next turn.
+	// The turn records which routes it used: the rate-limited key, then the one
+	// that answered.
+	if len(turn.RouteTrail) != 2 || turn.RouteTrail[0].Status != "rate_limited" ||
+		turn.RouteTrail[1].Status != "used" || turn.RouteTrail[1].CredentialID != k2.ID {
+		t.Fatalf("route trail = %+v", turn.RouteTrail)
+	}
+
+	// Hard stop: pinning a key whose tiny budget is already spent refuses the
+	// turn rather than quietly billing the other key.
 	h.call(protocol.MethodUsageSetBudget, protocol.UsageSetBudgetParams{CredentialID: k2.ID, MonthlyBudgetUSD: 0.000001, HardStop: true}, nil)
-	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "again please now",
-		Override: protocol.ModelSelection{CredentialID: k2.ID}}, &res)
-	turn, _, _ = h.waitTurn(res.Turn.ID, nil)
-	if turn.Status != protocol.TurnFailed || !strings.Contains(turn.Error, "budget") {
-		t.Fatalf("budget not enforced: %+v", turn)
+	err := h.callErr(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "again please now",
+		Override: protocol.ModelSelection{CredentialID: k2.ID}})
+	if !strings.Contains(err.Error(), "budget") {
+		t.Fatalf("budget not enforced: %v", err)
 	}
 }
 
@@ -790,5 +807,86 @@ func TestAgentUsesSkillAndCreatesTask(t *testing.T) {
 	h.call(protocol.MethodMCPList, nil, &ml)
 	if len(ml.Servers) != 0 {
 		t.Fatalf("mcp = %+v", ml)
+	}
+}
+
+// TestRoutePreviewAndHealth covers the router's read-only surface: what the
+// next message would run on, and what the engine has learned about each key.
+func TestRoutePreviewAndHealth(t *testing.T) {
+	h := newHarness(t, nil)
+	k1 := h.addKey("claude", "primary", "sk-primary")
+	k2 := h.addKey("claude", "backup", "sk-backup")
+	fb := true
+	h.call(protocol.MethodCredentialUpdate, protocol.CredentialUpdateParams{CredentialID: k2.ID, Fallback: &fb}, nil)
+
+	var preview protocol.ModelRouteResult
+	h.call(protocol.MethodModelRoute, protocol.ModelRouteParams{Text: "write me a haiku"}, &preview)
+	if preview.Chosen == nil || preview.Chosen.Provider != "claude" || preview.Chosen.CredentialID == "" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if len(preview.Alternatives) == 0 {
+		t.Fatalf("no fallbacks offered: %+v", preview)
+	}
+	if preview.Complexity == "" || preview.Complexity == protocol.ComplexityAuto {
+		t.Fatalf("complexity not resolved: %+v", preview)
+	}
+
+	// Pinning a model is honoured.
+	h.call(protocol.MethodModelRoute, protocol.ModelRouteParams{
+		Override: protocol.ModelSelection{Provider: "claude", Model: "claude-haiku-4-5", CredentialID: k2.ID}}, &preview)
+	if preview.Chosen == nil || preview.Chosen.Model != "claude-haiku-4-5" || preview.Chosen.CredentialID != k2.ID {
+		t.Fatalf("pin ignored: %+v", preview.Chosen)
+	}
+
+	// A rate limit on the first key puts it in cooldown, and health says so.
+	h.fake.push(func(llm.Request, string) ([]llm.Event, error) {
+		return nil, &llm.Error{Provider: "claude", Status: 429, Body: "slow down"}
+	}, textReply("second key answered"))
+	var th protocol.Thread
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "x"}, &th)
+	var res protocol.TurnStartResult
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "hello there friend"}, &res)
+	turn, text, _ := h.waitTurn(res.Turn.ID, nil)
+	if turn.Status != protocol.TurnCompleted || text != "second key answered" {
+		t.Fatalf("turn = %+v %q", turn, text)
+	}
+
+	var health protocol.ModelHealthResult
+	h.call(protocol.MethodModelHealth, protocol.ModelHealthParams{}, &health)
+	var cooling *protocol.ModelHealthRow
+	for i, row := range health.Rows {
+		if row.CredentialID == k1.ID && row.CooldownEnd != nil {
+			cooling = &health.Rows[i]
+		}
+	}
+	if cooling == nil || cooling.LastStatus != "rate_limited" || cooling.ErrCount != 1 {
+		t.Fatalf("health = %+v", health.Rows)
+	}
+
+	// The cooling key is offered as an alternative, but marked unavailable.
+	h.call(protocol.MethodModelRoute, protocol.ModelRouteParams{}, &preview)
+	if preview.Chosen == nil || preview.Chosen.CredentialID != k2.ID {
+		t.Fatalf("still routing to the rate-limited key: %+v", preview.Chosen)
+	}
+	var explained bool
+	for _, alt := range preview.Alternatives {
+		if alt.CredentialID == k1.ID && alt.Model == cooling.Model {
+			if alt.Unavailable == "" {
+				t.Fatalf("cooldown not explained: %+v", alt)
+			}
+			explained = true
+		}
+	}
+	if !explained {
+		t.Fatalf("cooling route missing from the preview: %+v", preview.Alternatives)
+	}
+
+	// Clearing the cooldown brings it back.
+	h.call(protocol.MethodModelHealth, protocol.ModelHealthParams{
+		Clear: &protocol.RouteRef{Provider: cooling.Provider, Model: cooling.Model, CredentialID: k1.ID}}, &health)
+	for _, row := range health.Rows {
+		if row.CredentialID == k1.ID && row.CooldownEnd != nil {
+			t.Fatalf("cooldown not cleared: %+v", row)
+		}
 	}
 }

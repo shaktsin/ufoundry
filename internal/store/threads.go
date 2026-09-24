@@ -221,7 +221,8 @@ func (s *Store) FinishTurn(ctx context.Context, t protocol.Turn) error {
 func (s *Store) ListTurns(ctx context.Context, threadID string) ([]protocol.Turn, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id, thread_id, status,
 		sel_provider, sel_model, sel_complexity, sel_credential,
-		res_provider, res_model, res_complexity, res_credential, auto_picked, error, started_at, finished_at
+		res_provider, res_model, res_complexity, res_credential, auto_picked, error, started_at, finished_at,
+		route_trail
 		FROM turns WHERE thread_id = ? ORDER BY started_at, id`, threadID)
 	if err != nil {
 		return nil, err
@@ -230,14 +231,17 @@ func (s *Store) ListTurns(ctx context.Context, threadID string) ([]protocol.Turn
 	var out []protocol.Turn
 	for rows.Next() {
 		var t protocol.Turn
-		var selC, resC, started string
+		var selC, resC, started, trail string
 		var auto int
 		var fin sql.NullString
 		if err := rows.Scan(&t.ID, &t.ThreadID, &t.Status,
 			&t.Selection.Provider, &t.Selection.Model, &selC, &t.Selection.CredentialID,
 			&t.Resolved.Provider, &t.Resolved.Model, &resC, &t.Resolved.CredentialID,
-			&auto, &t.Error, &started, &fin); err != nil {
+			&auto, &t.Error, &started, &fin, &trail); err != nil {
 			return nil, err
+		}
+		if trail != "" {
+			_ = json.Unmarshal([]byte(trail), &t.RouteTrail)
 		}
 		t.Selection.Complexity, t.Resolved.Complexity = protocol.Complexity(selC), protocol.Complexity(resC)
 		t.AutoPicked = auto != 0

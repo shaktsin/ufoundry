@@ -195,6 +195,17 @@ func (s *Server) routes() map[string]handler {
 			}
 			return okResult{true}, e.Store.SetModelPrice(ctx, p)
 		}),
+		protocol.MethodModelRoute: bind(func(ctx context.Context, c *conn, p protocol.ModelRouteParams) (any, error) {
+			return e.RoutePreview(ctx, p)
+		}),
+		protocol.MethodModelHealth: bind(func(ctx context.Context, c *conn, p protocol.ModelHealthParams) (any, error) {
+			if p.Clear != nil {
+				if err := e.ClearCooldown(ctx, p.Clear.Provider, p.Clear.Model, p.Clear.CredentialID); err != nil {
+					return nil, err
+				}
+			}
+			return e.ModelHealth(ctx)
+		}),
 		protocol.MethodModelRefresh: bind(func(ctx context.Context, c *conn, p protocol.ModelRefreshParams) (any, error) {
 			return e.RefreshModels(ctx, p.CredentialID)
 		}),

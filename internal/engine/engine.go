@@ -23,6 +23,7 @@ import (
 	"github.com/shaktsin/ufoundry/internal/policy"
 	"github.com/shaktsin/ufoundry/internal/projects"
 	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/ufoundry/internal/router"
 	"github.com/shaktsin/ufoundry/internal/secrets"
 	"github.com/shaktsin/ufoundry/internal/skills"
 	"github.com/shaktsin/ufoundry/internal/store"
@@ -42,6 +43,7 @@ type Engine struct {
 	Skills   *skills.Registry
 	MCP      *mcp.Manager
 	Projects *projects.Service
+	Router   *router.Router
 	Tasks    *tasks.Service
 	Bus      *Bus
 	Log      *slog.Logger
@@ -116,6 +118,7 @@ func New(ctx context.Context, o Options) (*Engine, error) {
 		approvals: map[string]chan bool{}, budgetWarned: map[string]string{},
 		turnWaiters: map[string]chan protocol.Turn{},
 	}
+	e.Router = router.New(o.Store, e.Creds, cat, o.LLMs, o.Config, o.Logger)
 	e.Tasks = tasks.NewService(o.Store, o.Logger, e.runTask, func(t protocol.Task) {
 		e.Bus.PublishAdmin(protocol.NotifyTaskUpdated, protocol.TaskEvent{Task: t})
 	})

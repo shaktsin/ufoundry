@@ -68,7 +68,10 @@ type Turn struct {
 	AutoPicked bool           `json:"autoPicked,omitempty"` // complexity chosen by Auto
 	Error      string         `json:"error,omitempty"`
 	Usage      UsageTotals    `json:"usage"`
-	StartedAt  time.Time      `json:"startedAt"`
+	// RouteTrail is every route the turn tried, in order: what served it, and
+	// anything it moved off and why.
+	RouteTrail []RouteStep `json:"routeTrail,omitempty"`
+	StartedAt  time.Time   `json:"startedAt"`
 	FinishedAt *time.Time     `json:"finishedAt,omitempty"`
 }
 
