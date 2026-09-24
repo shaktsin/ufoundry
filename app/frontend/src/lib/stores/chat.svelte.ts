@@ -1,7 +1,7 @@
 import { app } from './app.svelte';
 import { projects } from './projects.svelte';
 import { errMsg } from '$lib/format';
-import type { Attachment, Item, ModelSelection, SearchHit, Thread, Turn } from '$lib/types';
+import type { Attachment, Item, ModelRouteResult, ModelSelection, RouteChangedEvent, SearchHit, Thread, Turn } from '$lib/types';
 
 function sortThreads(list: Thread[]): Thread[] {
   return [...list].sort((a, b) => {
@@ -22,6 +22,9 @@ export class ThreadView {
   /** What this side chat was opened about, shown above the first message. */
   context = $state('');
   highlightItem = $state<string | null>(null);
+  /** What the next message would run on, and what it would fall back to. */
+  route = $state<ModelRouteResult | null>(null);
+  private routeSeq = 0;
 
   get running(): Turn | undefined {
     return this.turns.find((t) => t.status === 'running');
@@ -52,6 +55,7 @@ export class ThreadView {
       this.items = (r.items ?? []).sort((a, b) => a.seq - b.seq);
       this.selection = { ...(r.thread.settings ?? {}) };
       this.sending = this.turns.some((t) => t.status === 'running');
+      void this.loadRoute();
     } catch (e) {
       app.toast('error', errMsg(e));
     } finally {
@@ -114,6 +118,25 @@ export class ThreadView {
   async setSelection(sel: ModelSelection) {
     this.selection = sel;
     if (this.id) await app.try('thread/setSettings', { threadId: this.id, settings: sel });
+    void this.loadRoute();
+  }
+
+  /**
+   * Asks the engine what the next message would use. It is a preview, so a
+   * failure is not worth a toast: the chip simply says nothing.
+   */
+  async loadRoute() {
+    const seq = ++this.routeSeq;
+    try {
+      const r = await app.call<ModelRouteResult>('model/route', {
+        threadId: this.id ?? undefined,
+        projectId: projects.activeId ?? undefined,
+        override: this.selection,
+      });
+      if (seq === this.routeSeq) this.route = r;
+    } catch {
+      if (seq === this.routeSeq) this.route = null;
+    }
   }
 }
 
@@ -132,7 +155,17 @@ class ChatState {
     const r = app.rpc;
     r.on('thread/updated', (p: { thread: Thread }) => this.upsertThread(p.thread));
     r.on('turn/started', (p: { turn: Turn }) => this.each((v) => v.applyTurn(p.turn)));
-    r.on('turn/completed', (p: { turn: Turn }) => this.each((v) => v.applyTurn(p.turn)));
+    r.on('turn/completed', (p: { turn: Turn }) => {
+      this.each((v) => v.applyTurn(p.turn));
+      // A turn can leave a key cooling down, so what the next one would use
+      // may have changed.
+      void this.main.loadRoute();
+    });
+    r.on('turn/routeChanged', (p: RouteChangedEvent) => {
+      this.each((v) => {
+        if (v.id === p.threadId) void v.loadRoute();
+      });
+    });
     r.on('item/started', (p: { item: Item }) => this.each((v) => v.applyItem(p.item)));
     r.on('item/completed', (p: { item: Item }) => this.each((v) => v.applyItem(p.item)));
     r.on('item/delta', (p: { threadId: string; itemId: string; text?: string; output?: string }) => {
@@ -155,6 +188,7 @@ class ChatState {
   async reload() {
     await this.loadThreads();
     if (this.main.id) await this.main.load(this.main.id);
+    else void this.main.loadRoute();
   }
 
   /** All chats, grouped by project in the rail. */

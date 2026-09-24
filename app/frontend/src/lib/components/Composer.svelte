@@ -84,6 +84,29 @@
     void addFiles(e.dataTransfer?.files ?? null);
   }
 
+  const route = $derived(view.route?.chosen ?? null);
+  const fallbacks = $derived((view.route?.alternatives ?? []).filter((a) => !a.unavailable));
+  const routeChip = $derived(
+    route ? `${route.displayName || route.model}${fallbacks.length ? ` +${fallbacks.length}` : ''}` : '',
+  );
+  const routeTitle = $derived(
+    route
+      ? [
+          `Runs on ${route.displayName || route.model} (${route.credentialLabel || 'default key'})`,
+          fallbacks.length
+            ? `Falls back to ${fallbacks
+                .slice(0, 3)
+                .map((f) => `${f.displayName || f.model} (${f.credentialLabel || 'default key'})`)
+                .join(', ')}${fallbacks.length > 3 ? '…' : ''}`
+            : 'No fallback is available',
+          ...(view.route?.alternatives ?? [])
+            .filter((a) => a.unavailable)
+            .slice(0, 3)
+            .map((a) => `${a.displayName || a.model}: ${a.unavailable}`),
+        ].join('\n')
+      : '',
+  );
+
   const placeholder = $derived(
     offline
       ? 'Engine offline…'
@@ -140,6 +163,11 @@
         }}
       />
       <ModelPicker value={view.selection} onchange={(v) => view.setSelection(v)} compact={compact} />
+      {#if route}
+        <span class="text-[11px] text-faint truncate {compact ? 'hidden sm:inline' : ''}" title={routeTitle}>
+          {routeChip}
+        </span>
+      {/if}
       <div class="ml-auto">
         {#if busy}
           <button

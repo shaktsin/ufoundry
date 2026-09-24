@@ -2,16 +2,39 @@
   import { RefreshCw, Eye, EyeOff } from '@lucide/svelte';
   import { app } from '$lib/stores/app.svelte';
   import { errMsg } from '$lib/format';
-  import type { Model } from '$lib/types';
+  import type { Model, ModelHealthRow } from '$lib/types';
 
   let all = $state<Model[]>([]);
+  let health = $state<ModelHealthRow[]>([]);
   let editing = $state<string | null>(null);
   let price = $state({ in: '', cached: '', out: '' });
 
   async function load() {
     const r = await app.try<{ models: Model[] }>('model/list', { includeHidden: true });
     if (r) all = r.models;
+    await loadHealth();
   }
+
+  async function loadHealth(clear?: ModelHealthRow) {
+    const r = await app.try<{ rows: ModelHealthRow[] }>('model/health', {
+      clear: clear ? { provider: clear.provider, model: clear.model, credentialId: clear.credentialId } : undefined,
+    });
+    if (r) health = r.rows ?? [];
+  }
+
+  const cooling = $derived(health.filter((h) => h.cooldownEnd));
+
+  function until(iso: string): string {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  const statusWords: Record<string, string> = {
+    rate_limited: 'a rate limit',
+    server_error: 'a provider outage',
+    unauthorized: 'the key being refused',
+    timeout: 'a timeout',
+    unknown_model: 'the model being unavailable',
+  };
 
   $effect(() => {
     if (app.conn === 'open') void load();
@@ -62,6 +85,27 @@
 </script>
 
 <p class="text-sm text-muted mb-3">Hidden models don't appear in the model picker. Prices are USD per million tokens and drive the cost numbers in Usage.</p>
+
+{#if cooling.length}
+  <div class="card p-3 mb-4 border-amber-warm/40">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-muted mb-2">Resting</h2>
+    <p class="text-sm text-muted mb-2">
+      These aren't being used right now, so a turn doesn't stall on them. They come back on their own.
+    </p>
+    <ul class="space-y-1.5">
+      {#each cooling as h (h.provider + h.model + h.credentialId)}
+        <li class="flex items-center gap-2 text-sm">
+          <span class="text-ink">{h.model}</span>
+          <span class="text-muted">{h.credentialLabel ? `on ${h.credentialLabel}` : ''}</span>
+          <span class="text-[11px] text-faint" title={h.lastError ?? ''}>
+            until {until(h.cooldownEnd!)} after {statusWords[h.lastStatus ?? ''] ?? 'an error'}
+          </span>
+          <button class="btn-ghost btn-sm ml-auto" onclick={() => loadHealth(h)}>Try it now</button>
+        </li>
+      {/each}
+    </ul>
+  </div>
+{/if}
 
 {#each byProvider as [prov, list]}
   <div class="flex items-center mt-5 mb-2">

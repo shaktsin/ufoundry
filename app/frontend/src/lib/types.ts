@@ -130,8 +130,61 @@ export interface Turn {
   autoPicked?: boolean;
   error?: string;
   usage: UsageTotals;
+  /** Every route the turn tried, in order; more than one means it switched. */
+  routeTrail?: RouteStep[];
   startedAt: string;
   finishedAt?: string;
+}
+
+/** One way to serve a request: a model, the key that pays for it, and why. */
+export interface RouteInfo {
+  provider: string;
+  model: string;
+  displayName?: string;
+  credentialId: string;
+  credentialLabel?: string;
+  why: string;
+  costPerMTok?: number;
+  /** Set when the route cannot be used right now; the text says why. */
+  unavailable?: string;
+  cooldownEnd?: string;
+}
+
+export interface RouteStep extends RouteInfo {
+  at: string;
+  status: string;
+  error?: string;
+  latencyMs?: number;
+}
+
+export interface ModelRouteResult {
+  chosen?: RouteInfo;
+  alternatives: RouteInfo[];
+  complexity: Complexity;
+  autoPicked?: boolean;
+  reason?: string;
+}
+
+export interface ModelHealthRow {
+  provider: string;
+  model: string;
+  credentialId: string;
+  credentialLabel?: string;
+  cooldownEnd?: string;
+  lastStatus?: string;
+  lastError?: string;
+  okCount: number;
+  errCount: number;
+  latencyMs?: number;
+  updatedAt: string;
+}
+
+export interface RouteChangedEvent {
+  threadId: string;
+  turnId: string;
+  from: RouteInfo;
+  to: RouteInfo;
+  reason: string;
 }
 
 export type ItemKind =

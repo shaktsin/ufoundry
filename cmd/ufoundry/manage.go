@@ -459,6 +459,80 @@ func runModel(args []string) error {
 			return errors.New("usage: ufoundry model refresh KEY_ID")
 		}
 		return testKey(rest[0])
+	case "route":
+		fs := flag.NewFlagSet("model route", flag.ExitOnError)
+		complexity := fs.String("c", "", "quick | standard | deep")
+		provider := fs.String("p", "", "pin a provider")
+		model := fs.String("m", "", "pin a model")
+		key := fs.String("k", "", "pin an API key")
+		fs.Parse(rest)
+		var r protocol.ModelRouteResult
+		if err := call(protocol.MethodModelRoute, protocol.ModelRouteParams{
+			Complexity: protocol.Complexity(*complexity), Text: strings.Join(fs.Args(), " "),
+			Override: protocol.ModelSelection{Provider: *provider, Model: *model, CredentialID: *key},
+		}, &r); err != nil {
+			return err
+		}
+		if r.Chosen == nil {
+			if r.Reason != "" {
+				return errors.New(r.Reason)
+			}
+			return errors.New("no model is available")
+		}
+		auto := ""
+		if r.AutoPicked {
+			auto = " (picked by Auto)"
+		}
+		fmt.Printf("complexity: %s%s\n\n", r.Complexity, auto)
+		w := table()
+		fmt.Fprintln(w, "ORDER	PROVIDER	MODEL	KEY	WHY	$/M	STATUS")
+		rows := append([]protocol.RouteInfo{*r.Chosen}, r.Alternatives...)
+		for i, rt := range rows {
+			order, status := fmt.Sprintf("%d", i+1), "ready"
+			if i == 0 {
+				order = "now"
+			}
+			if rt.Unavailable != "" {
+				order, status = "-", rt.Unavailable
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.2f\t%s\n", order, rt.Provider, rt.Model,
+				rt.CredentialL, rt.Why, rt.CostPerMTok, status)
+		}
+		return w.Flush()
+	case "health":
+		fs := flag.NewFlagSet("model health", flag.ExitOnError)
+		clear := fs.Bool("clear", false, "clear the cooldown on PROVIDER MODEL KEY_ID")
+		fs.Parse(rest)
+		var p protocol.ModelHealthParams
+		if *clear {
+			if fs.NArg() < 3 {
+				return errors.New("usage: ufoundry model health -clear PROVIDER MODEL KEY_ID")
+			}
+			p.Clear = &protocol.RouteRef{Provider: fs.Arg(0), Model: fs.Arg(1), CredentialID: fs.Arg(2)}
+		}
+		var r protocol.ModelHealthResult
+		if err := call(protocol.MethodModelHealth, p, &r); err != nil {
+			return err
+		}
+		if len(r.Rows) == 0 {
+			fmt.Println("Nothing has failed yet.")
+			return nil
+		}
+		w := table()
+		fmt.Fprintln(w, "PROVIDER\tMODEL\tKEY\tOK\tERR\tLATENCY\tCOOLING DOWN\tLAST")
+		for _, row := range r.Rows {
+			cool := "-"
+			if row.CooldownEnd != nil {
+				cool = "until " + row.CooldownEnd.Local().Format("15:04:05")
+			}
+			last := row.LastStatus
+			if last == "" {
+				last = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%dms\t%s\t%s\n", row.Provider, row.Model, row.Label,
+				row.OKCount, row.ErrCount, row.LatencyMs, cool, last)
+		}
+		return w.Flush()
 	}
 	return fmt.Errorf("unknown model command %q", sub)
 }

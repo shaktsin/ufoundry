@@ -76,6 +76,33 @@
     return [name, cx].filter(Boolean).join(' · ');
   }
 
+  /**
+   * When a turn moved off its first model — a rate limit, an outage — the
+   * footer says so, so a slower or cheaper answer is never a mystery.
+   */
+  function switchNote(t: Turn): string {
+    const trail = t.routeTrail ?? [];
+    if (trail.length < 2) return '';
+    const names = trail.map((s) => s.displayName || s.model);
+    const used = trail[trail.length - 1];
+    const first = trail[0];
+    if (first.model === used.model) return `switched key after ${statusWord(first.status)}`;
+    return `switched from ${names[0]} after ${statusWord(first.status)}`;
+  }
+
+  function statusWord(status: string): string {
+    return (
+      {
+        rate_limited: 'a rate limit',
+        server_error: 'a provider error',
+        unauthorized: 'a key being refused',
+        timeout: 'a timeout',
+        context_too_long: 'a prompt too long for it',
+        unknown_model: 'it being unavailable',
+      }[status] ?? 'an error'
+    );
+  }
+
   /** Files a turn changed, for the "undo this turn" control. */
   function changedFiles(g: Group): string[] {
     return g.items.filter((i) => i.kind === 'fileChange').map((i) => (i.data as { path?: string })?.path ?? '');
@@ -167,6 +194,11 @@
                 {#if g.turn.status === 'failed'}<span class="text-rust selectable">Failed: {g.turn.error}</span>{/if}
                 {#if g.turn.status === 'interrupted'}<span class="text-amber-warm">Stopped</span>{/if}
                 <span>{modelLabel(g.turn)}</span>
+                {#if switchNote(g.turn)}
+                  <span class="text-amber-warm" title={(g.turn.routeTrail ?? []).map((s) => `${s.displayName || s.model} (${s.credentialLabel}): ${s.status}${s.error ? ` — ${s.error}` : ''}`).join('\n')}>
+                    {switchNote(g.turn)}
+                  </span>
+                {/if}
                 {#if changedFiles(g).length > 0}
                   <button
                     class="opacity-0 group-hover/turn:opacity-100 transition-opacity hover:text-ink flex items-center gap-1"

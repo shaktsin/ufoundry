@@ -82,6 +82,9 @@ Models and keys
       budget ID USD [--hard-stop]
   model list [-p PROVIDER] [--all] | hide PROVIDER MODEL | show PROVIDER MODEL | refresh KEY
         price PROVIDER MODEL IN CACHED_IN OUT   (USD per 1M tokens)
+        route [-c LEVEL] [-p PROVIDER] [-m MODEL] [-k KEY] [TEXT]
+                                 What the next message would run on, and its fallbacks
+        health [-clear PROVIDER MODEL KEY]      Cooldowns and how each key has been doing
   complexity [show] | default LEVEL
   usage [--by credential|model|thread|role|day] [--days N] [--key ID]
 

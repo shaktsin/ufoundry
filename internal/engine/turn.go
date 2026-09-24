@@ -356,6 +356,9 @@ func (e *Engine) runTurn(ctx context.Context, th protocol.Thread, turn protocol.
 	if turnErr != nil {
 		log.Warn("turn failed", "err", turnErr)
 	}
+	// The turn's footer should name the model that actually answered, not the
+	// one it started on.
+	turn.Resolved = res.sel
 	if len(res.trail) > 0 {
 		turn.RouteTrail = res.trail
 		if err := e.Store.SetTurnRoutes(sctx, turn.ID, res.trail); err != nil {
@@ -423,10 +426,15 @@ func (e *Engine) callModel(ctx, sctx context.Context, turn protocol.Turn, res *r
 		e.Bus.Publish(turn.ThreadID, protocol.NotifyRouteChanged, protocol.RouteChangedEvent{
 			ThreadID: turn.ThreadID, TurnID: turn.ID, From: from.Info(), To: next.Info(), Reason: status,
 		})
-		if it, ierr := e.newItem(sctx, turn, protocol.ItemInboundEvent); ierr == nil {
-			it.Status = protocol.ItemCompleted
-			it.Text = switchNote(from, next, status)
-			_ = e.saveAndPublish(sctx, it, protocol.NotifyItemCompleted)
+		// A different model can answer differently, so the chat says so. A
+		// different key on the same model changes nothing the reader can see,
+		// so that one stays in the turn's footer.
+		if from.Model != next.Model {
+			if it, ierr := e.newItem(sctx, turn, protocol.ItemInboundEvent); ierr == nil {
+				it.Status = protocol.ItemCompleted
+				it.Text = switchNote(from, next, status)
+				_ = e.saveAndPublish(sctx, it, protocol.NotifyItemCompleted)
+			}
 		}
 	}
 }
@@ -455,9 +463,6 @@ func switchNote(from, to router.Route, status string) string {
 	}[status]
 	if reason == "" {
 		reason = "an error"
-	}
-	if from.Model == to.Model {
-		return fmt.Sprintf("Switched to the key %s after %s on %s.", to.Cred.Record.Label, reason, from.Cred.Record.Label)
 	}
 	return fmt.Sprintf("Switched to %s after %s on %s.", name(to), reason, name(from))
 }

@@ -163,6 +163,17 @@ func chatTurn(ctx context.Context, c *client.Client, in *bufio.Reader, threadID,
 				if err := c.Call(ctx, protocol.MethodApprovalRespond, protocol.ApprovalRespondParams{ApprovalID: ev.Approval.ID, Approve: approve}, &out); err != nil {
 					fmt.Fprintf(os.Stderr, "%s(%v)%s\n", dim, err, reset)
 				}
+			case protocol.NotifyRouteChanged:
+				var ev protocol.RouteChangedEvent
+				if json.Unmarshal(n.Params, &ev) != nil || ev.TurnID != turnID {
+					continue
+				}
+				if lastWasText {
+					fmt.Println()
+					lastWasText = false
+				}
+				fmt.Fprintf(os.Stderr, "%s↷ %s (%s) → %s (%s) after %s%s\n", dim,
+					ev.From.Model, ev.From.CredentialL, ev.To.Model, ev.To.CredentialL, ev.Reason, reset)
 			case protocol.NotifyBudgetWarning:
 				var w protocol.BudgetWarning
 				if json.Unmarshal(n.Params, &w) == nil {
@@ -177,7 +188,11 @@ func chatTurn(ctx context.Context, c *client.Client, in *bufio.Reader, threadID,
 					fmt.Println()
 				}
 				t := ev.Turn
-				fmt.Fprintf(os.Stderr, "%s%s · %s%s\n", dim, t.Status, fmtUsage(t.Usage), reset)
+				answered := ""
+				if t.Resolved.Model != r.Model || t.Resolved.CredentialID != r.CredentialID {
+					answered = t.Resolved.Model + " · "
+				}
+				fmt.Fprintf(os.Stderr, "%s%s · %s%s%s\n", dim, t.Status, answered, fmtUsage(t.Usage), reset)
 				if t.Status == protocol.TurnFailed {
 					return errors.New(t.Error)
 				}
