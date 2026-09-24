@@ -305,10 +305,14 @@ func (e *Engine) ForkThread(ctx context.Context, p protocol.ThreadForkParams) (p
 		return protocol.Thread{}, err
 	}
 	title := src.Title
-	if title != "" {
+	channel := "app"
+	if p.SideChat {
+		title = "Side chat"
+		channel = "side"
+	} else if title != "" {
 		title += " (fork)"
 	}
-	dst, err := e.Store.CreateThread(ctx, protocol.Thread{Title: title, Channel: "app", Settings: src.Settings, ForkedFrom: src.ID})
+	dst, err := e.Store.CreateThread(ctx, protocol.Thread{Title: title, ProjectID: src.ProjectID, Channel: channel, Settings: src.Settings, ForkedFrom: src.ID})
 	if err != nil {
 		return protocol.Thread{}, err
 	}

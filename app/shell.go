@@ -407,6 +407,19 @@ func (s *Shell) handleShellAction(w http.ResponseWriter, r *http.Request, action
 	case "restartEngine":
 		err = s.Engine.Restart(ctx)
 		msg = "Engine restarted."
+	case "chooseFolder":
+		if s.App == nil || s.Window == nil {
+			err = errors.New("folder picker is only available in the desktop app")
+			break
+		}
+		var folder string
+		folder, err = s.App.Dialog.OpenFile().CanChooseFiles(false).CanChooseDirectories(true).
+			CanCreateDirectories(true).SetTitle("Choose project folder").SetButtonText("Use folder").
+			AttachToWindow(s.Window).PromptForSingleSelection()
+		if err == nil {
+			writeJSON(w, http.StatusOK, map[string]string{"path": folder})
+			return
+		}
 	case "installService":
 		err = s.Engine.InstallService(ctx)
 		msg = "The engine now runs in the background and starts at login."

@@ -143,6 +143,8 @@ type ThreadForkParams struct {
 	ThreadID string `json:"threadId"`
 	// Items up to and including this item are copied into the new thread.
 	UpToItemID string `json:"upToItemId,omitempty"`
+	// SideChat creates a contextual fork intended for the side-chat pane.
+	SideChat bool `json:"sideChat,omitempty"`
 }
 
 type ThreadSearchParams struct {

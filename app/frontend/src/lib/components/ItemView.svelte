@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { Brain, AlertTriangle, Inbox, MessageSquarePlus, FilePlus2, FilePen, FileX2 } from '@lucide/svelte';
+  import { Brain, AlertTriangle, Inbox, FilePlus2, FilePen, FileX2 } from '@lucide/svelte';
   import type { Item, FileChangeData } from '$lib/types';
   import { renderMarkdown } from '$lib/markdown';
-  import { chat, type ThreadView } from '$lib/stores/chat.svelte';
+  import { type ThreadView } from '$lib/stores/chat.svelte';
   import { inspector } from '$lib/stores/inspector.svelte';
   import ToolCall from './ToolCall.svelte';
   import DiffView from './DiffView.svelte';
@@ -13,11 +13,6 @@
 
   const html = $derived(item.kind === 'agentMessage' ? renderMarkdown(item.text || '') : '');
   const change = $derived(item.kind === 'fileChange' ? (item.data as FileChangeData) : null);
-  const canAsk = $derived(!!item.text && (item.kind === 'agentMessage' || item.kind === 'userMessage'));
-
-  function askAbout() {
-    chat.startSide(item.text ?? '');
-  }
 </script>
 
 <div
@@ -26,16 +21,6 @@
 >
   {#if item.kind === 'userMessage'}
     <div class="flex justify-end gap-1 items-start">
-      {#if canAsk}
-        <button
-          class="opacity-0 group-hover/item:opacity-100 transition-opacity btn-ghost btn-sm mt-1"
-          title="Ask about this in a side chat"
-          aria-label="Ask about this"
-          onclick={askAbout}
-        >
-          <MessageSquarePlus class="w-3.5 h-3.5" />
-        </button>
-      {/if}
       <div class="max-w-[80%] bg-raised rounded-2xl rounded-br-md px-3.5 py-2 text-sm whitespace-pre-wrap selectable">{item.text}</div>
     </div>
   {:else if item.kind === 'agentMessage'}
@@ -44,14 +29,6 @@
         {@html html}
         {#if item.status === 'inProgress'}<span class="inline-block w-1.5 h-4 bg-clay animate-pulse align-text-bottom"></span>{/if}
       </div>
-      {#if canAsk && item.status !== 'inProgress'}
-        <button
-          class="opacity-0 group-hover/item:opacity-100 transition-opacity btn-ghost btn-sm mt-1"
-          onclick={askAbout}
-        >
-          <MessageSquarePlus class="w-3.5 h-3.5" />Ask about this
-        </button>
-      {/if}
     </div>
   {:else if item.kind === 'reasoning'}
     <div class="text-xs">

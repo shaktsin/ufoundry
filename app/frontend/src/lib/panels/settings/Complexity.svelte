@@ -32,8 +32,8 @@
     <p class="text-xs text-muted mt-2">Auto looks at each message (length, code, words like “research” or “step by step”) and picks Quick, Standard or Deep.</p>
   </div>
 
-  <div class="card overflow-hidden">
-    <table class="data-table">
+  <div class="card overflow-x-auto">
+    <table class="data-table min-w-[680px]">
       <thead><tr><th>Level</th><th>Thinking</th><th>Max tool steps</th><th>Max output tokens</th><th>Agent teams</th></tr></thead>
       <tbody>
         {#each draft.presets as p}

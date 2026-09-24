@@ -179,7 +179,7 @@
   {:else}
     <div class="divide-y divide-line">
       {#each draft.models as model (model.id)}
-        <div class="p-4 grid grid-cols-[minmax(9rem,1fr)_10rem_minmax(12rem,1.5fr)_auto] gap-3 items-end">
+        <div class="p-3 grid grid-cols-1 md:grid-cols-[minmax(9rem,1fr)_10rem_minmax(12rem,1.5fr)_auto] gap-2.5 items-end">
           <label class="form-field"><span>Name</span><input class="input" bind:value={model.name} oninput={changed} /></label>
           <label class="form-field">
             <span>Provider</span>
@@ -202,7 +202,7 @@
 
 <div class="card p-4 mb-8">
   <h3 class="text-sm font-semibold text-ink mb-3">Add model</h3>
-  <div class="grid grid-cols-[minmax(9rem,1fr)_10rem_minmax(12rem,1.5fr)_auto] gap-3 items-end">
+  <div class="grid grid-cols-1 md:grid-cols-[minmax(9rem,1fr)_10rem_minmax(12rem,1.5fr)_auto] gap-2.5 items-end">
     <label class="form-field"><span>Name</span><input class="input" placeholder="Daily model" bind:value={newModel.name} /></label>
     <label class="form-field">
       <span>Provider</span>
@@ -211,12 +211,12 @@
       </select>
     </label>
     <label class="form-field"><span>Model ID</span><input class="input font-mono" placeholder="Provider model ID" bind:value={newModel.model} /></label>
-    <button class="btn-secondary h-9" onclick={addModel}><Plus class="w-4 h-4" />Add</button>
+    <button class="btn-outline h-9 whitespace-nowrap" onclick={addModel}><Plus class="w-4 h-4" />Add</button>
   </div>
 </div>
 
 <div class="mb-4">
-  <div class="flex items-end gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_13rem] items-end gap-3">
     <div>
       <h2 class="text-base font-semibold text-ink">Model pools</h2>
       <p class="text-sm text-muted mt-1 max-w-2xl">Pools try configured models in order. Quota and rate-limit failures move to the next provider automatically.</p>
@@ -279,6 +279,6 @@
   <h3 class="text-sm font-semibold text-ink mb-3">Add pool</h3>
   <div class="flex items-end gap-3 max-w-xl">
     <label class="form-field flex-1"><span>Pool name</span><input class="input" placeholder="Coding pool" bind:value={newPoolName} /></label>
-    <button class="btn-secondary h-9" onclick={addPool}><Plus class="w-4 h-4" />Add pool</button>
+    <button class="btn-outline h-9 whitespace-nowrap shrink-0" onclick={addPool}><Plus class="w-4 h-4" />Add pool</button>
   </div>
 </div>

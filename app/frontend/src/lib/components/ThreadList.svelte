@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    Archive, ChevronDown, ChevronRight, CornerDownRight, Folder, MoreHorizontal, Pencil, Pin, Plus, Search, X,
+    Archive, ChevronDown, ChevronRight, Folder, MessageSquarePlus, MoreHorizontal, Pin, Plus, Search, X, LoaderCircle,
   } from '@lucide/svelte';
   import { chat } from '$lib/stores/chat.svelte';
   import { app } from '$lib/stores/app.svelte';
@@ -12,17 +12,20 @@
   let q = $state('');
   let timer: ReturnType<typeof setTimeout> | undefined;
   let menuFor = $state<string | null>(null);
+  let projectMenuFor = $state<string | null>(null);
   let renaming = $state<string | null>(null);
   let renameText = $state('');
   let renamingProject = $state<string | null>(null);
   let projectName = $state('');
   let expanded = $state<Record<string, boolean>>({});
+  let archivedExpanded = $state(false);
 
   const groups = $derived(projects.list.map((project) => ({
     project,
     threads: chat.rootThreads.filter((thread) => thread.projectId === project.id),
   })));
   const looseThreads = $derived(chat.rootThreads.filter((thread) => !thread.projectId));
+  const archivedThreads = $derived(chat.archivedRootThreads);
 
   function isExpanded(id: string) { return expanded[id] ?? true; }
   function toggle(id: string) { expanded = { ...expanded, [id]: !isExpanded(id) }; }
@@ -69,7 +72,7 @@
   }
 </script>
 
-<svelte:window onclick={() => (menuFor = null)} />
+<svelte:window onclick={() => { menuFor = null; projectMenuFor = null; }} />
 
 {#snippet threadRow(t: Thread)}
   {@const active = chat.main.id === t.id}
@@ -89,6 +92,7 @@
     {:else}
       <button class="w-full text-left px-2.5 py-1.5 pr-8" onclick={() => chat.open(t.id)} ondblclick={() => startRename(t)}>
         <div class="flex items-center gap-1.5 text-xs {active ? 'text-accent-strong font-medium' : 'text-ink-soft'}">
+          {#if chat.isWorking(t.id)}<LoaderCircle class="w-3.5 h-3.5 shrink-0 text-clay animate-spin motion-reduce:animate-none" aria-label="Working" />{/if}
           {#if t.pinned}<Pin class="w-3 h-3 text-accent shrink-0" />{/if}
           <span class="truncate">{t.title || 'New chat'}</span>
         </div>
@@ -105,6 +109,7 @@
       {#if menuFor === t.id}
         <div class="absolute right-1 top-8 z-20 w-40 popover py-1 text-xs" role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
           <button class="menu-item" onclick={() => { menuFor = null; chat.pin(t); }}><Pin class="w-3.5 h-3.5" />{t.pinned ? 'Unpin' : 'Pin'}</button>
+          <button class="menu-item" onclick={async () => { menuFor = null; if (chat.main.id !== t.id) await chat.open(t.id); void chat.startSide(''); }}><MessageSquarePlus class="w-3.5 h-3.5" />Start side chat</button>
           <button class="menu-item" onclick={() => startRename(t)}>Rename</button>
           <button class="menu-item" onclick={() => { menuFor = null; chat.fork(t); }}>Fork</button>
           <button class="menu-item" onclick={() => doExport(t)}>Copy as Markdown</button>
@@ -114,12 +119,6 @@
       {/if}
     {/if}
   </div>
-  {#each chat.sideChatsOf(t.id) as side (side.id)}
-    <button class="w-full flex items-center gap-1.5 pl-6 pr-2 py-1 rounded-md text-[11px] text-muted hover:bg-raised/60 hover:text-ink" onclick={() => chat.openSide(side.id)}>
-      <CornerDownRight class="w-3 h-3 shrink-0 text-faint" />
-      <span class="truncate">{side.title || 'Side chat'}</span>
-    </button>
-  {/each}
 {/snippet}
 
 <div class="flex-1 min-h-0 flex flex-col">
@@ -135,10 +134,10 @@
 
   <div class="flex items-center px-4 pb-1.5">
     <span class="section-label">Chats</span>
-    <button class="ml-auto text-[10px] text-muted hover:text-ink" onclick={() => chat.toggleArchived()}>{chat.showArchived ? 'Active' : 'Archived'}</button>
+    <button class="ml-auto p-1 rounded-md text-muted hover:text-ink hover:bg-raised" aria-label="Create chat" title="Create chat" onclick={() => chat.newChat()}><Plus class="w-3.5 h-3.5" /></button>
   </div>
 
-  <div class="flex-1 overflow-y-auto px-2.5 pb-3 space-y-1">
+  <div class="flex-1 min-h-0 overflow-y-auto px-2.5 pb-3 space-y-1">
     {#if q.trim()}
       {#if chat.hits.length === 0}<p class="text-xs text-muted px-2 py-3">No matches.</p>{/if}
       {#each chat.hits as hit (hit.itemId)}
@@ -150,7 +149,7 @@
     {:else}
       {#each groups as group (group.project.id)}
         <section class="pb-1">
-          <div class="group/project flex items-center gap-1 rounded-lg hover:bg-raised/50">
+          <div class="group/project relative flex items-center gap-1 rounded-lg hover:bg-raised/50">
             <button class="p-1.5 text-faint hover:text-ink" aria-label={`Toggle ${group.project.name}`} onclick={() => toggle(group.project.id)}>
               {#if isExpanded(group.project.id)}<ChevronDown class="w-3.5 h-3.5" />{:else}<ChevronRight class="w-3.5 h-3.5" />{/if}
             </button>
@@ -171,8 +170,14 @@
               <button class="min-w-0 flex-1 text-left text-[11px] font-semibold text-ink-soft truncate py-1.5" title={group.project.root} onclick={() => openProject(group.project)} ondblclick={() => startProjectRename(group.project)}>{group.project.name}</button>
             {/if}
             <span class="text-[10px] text-faint">{group.threads.length}</span>
-            <button class="p-1.5 text-faint hover:text-accent opacity-0 group-hover/project:opacity-100" aria-label={`Rename ${group.project.name}`} title="Rename project" onclick={() => startProjectRename(group.project)}><Pencil class="w-3 h-3" /></button>
-            <button class="p-1.5 text-faint hover:text-accent opacity-0 group-hover/project:opacity-100" aria-label={`New chat in ${group.project.name}`} title={`New chat in ${group.project.name}`} onclick={() => chat.newChatFor(group.project.id)}><Plus class="w-3.5 h-3.5" /></button>
+            <button class="p-1.5 text-faint hover:text-accent opacity-0 group-hover/project:opacity-100" aria-label={`Start a new chat in ${group.project.name}`} title="Start a new chat" onclick={() => chat.newChatFor(group.project.id)}><MessageSquarePlus class="w-3.5 h-3.5" /></button>
+            <button class="p-1.5 text-faint hover:text-ink opacity-0 group-hover/project:opacity-100 {projectMenuFor === group.project.id ? 'opacity-100' : ''}" aria-label={`Project actions for ${group.project.name}`} title="Project actions" onclick={(e) => { e.stopPropagation(); projectMenuFor = projectMenuFor === group.project.id ? null : group.project.id; }}><MoreHorizontal class="w-3.5 h-3.5" /></button>
+            {#if projectMenuFor === group.project.id}
+              <div class="absolute right-1 top-8 z-20 w-40 popover py-1 text-xs" role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+                <button class="menu-item" onclick={() => { projectMenuFor = null; startProjectRename(group.project); }}>Edit project name</button>
+                <button class="menu-item" onclick={() => { projectMenuFor = null; void openProject(group.project); }}>Project settings</button>
+              </div>
+            {/if}
           </div>
           {#if isExpanded(group.project.id)}
             <div class="ml-3 pl-2 border-l border-line space-y-0.5">
@@ -199,8 +204,23 @@
           </div>
         {/if}
       </section>
+
     {/if}
   </div>
+  <section class="shrink-0 px-2.5 pb-2 pt-1 border-t border-line bg-paper">
+    <button class="w-full flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-left hover:bg-raised/60" aria-expanded={archivedExpanded} onclick={() => (archivedExpanded = !archivedExpanded)}>
+      {#if archivedExpanded}<ChevronDown class="w-3.5 h-3.5 text-faint" />{:else}<ChevronRight class="w-3.5 h-3.5 text-faint" />{/if}
+      <Archive class="w-3.5 h-3.5 text-muted" />
+      <span class="text-[11px] font-semibold text-ink-soft">Archived</span>
+      <span class="ml-auto text-[10px] text-faint">{archivedThreads.length}</span>
+    </button>
+    {#if archivedExpanded}
+      <div class="max-h-48 overflow-y-auto ml-3 pl-2 border-l border-line space-y-0.5">
+        {#if archivedThreads.length === 0}<p class="text-[11px] text-faint px-2 py-1">No archived chats</p>{/if}
+        {#each archivedThreads as thread (thread.id)}{@render threadRow(thread)}{/each}
+      </div>
+    {/if}
+  </section>
 </div>
 
 <style>

@@ -10,6 +10,12 @@ function sortThreads(list: Thread[]): Thread[] {
   });
 }
 
+function isSideChat(t: Thread): boolean {
+  // The title check keeps side sessions created by older app builds out of
+  // the main chat list; current side sessions carry an explicit channel.
+  return t.channel === 'side' || (!!t.forkedFrom && t.title === 'Side chat');
+}
+
 /** One open conversation: the main chat, or a side chat beside it. */
 export class ThreadView {
   id = $state<string | null>(null);
@@ -31,7 +37,7 @@ export class ThreadView {
   }
 
   get title(): string {
-    return this.thread?.title || (this.id ? 'Untitled' : 'New chat');
+    return this.thread?.title || (this.id ? 'Untitled' : 'Chat');
   }
 
   reset() {
@@ -142,7 +148,7 @@ export class ThreadView {
 
 class ChatState {
   threads = $state<Thread[]>([]);
-  showArchived = $state(false);
+  archivedThreads = $state<Thread[]>([]);
   query = $state('');
   hits = $state<SearchHit[]>([]);
   /** The conversation in column 1. */
@@ -150,12 +156,18 @@ class ChatState {
   /** Side chats in column 2, most recent last. */
   sides = $state<ThreadView[]>([]);
   activeSideId = $state<string | null>(null);
+  /** Running turns across chats, including chats not currently open. */
+  workingThreads = $state<Record<string, boolean>>({});
 
   constructor() {
     const r = app.rpc;
     r.on('thread/updated', (p: { thread: Thread }) => this.upsertThread(p.thread));
-    r.on('turn/started', (p: { turn: Turn }) => this.each((v) => v.applyTurn(p.turn)));
+    r.on('turn/started', (p: { turn: Turn }) => {
+      this.workingThreads[p.turn.threadId] = true;
+      this.each((v) => v.applyTurn(p.turn));
+    });
     r.on('turn/completed', (p: { turn: Turn }) => {
+      if (p.turn.status !== 'running') this.workingThreads[p.turn.threadId] = false;
       this.each((v) => v.applyTurn(p.turn));
       // A turn can leave a key cooling down, so what the next one would use
       // may have changed.
@@ -187,6 +199,11 @@ class ChatState {
     return this.sides.find((s) => s.id === this.activeSideId);
   }
 
+  isWorking(threadId: string): boolean {
+    return !!this.workingThreads[threadId] || this.main.id === threadId && !!this.main.running ||
+      this.sides.some((view) => view.id === threadId && !!view.running);
+  }
+
   async reload() {
     await this.loadThreads();
     if (this.main.id) await this.main.load(this.main.id);
@@ -196,29 +213,30 @@ class ChatState {
   /** All chats, grouped by project in the rail. */
   async loadThreads() {
     try {
-      const params: Record<string, unknown> = { archived: this.showArchived, limit: 200 };
-      const r = await app.call<{ threads: Thread[] }>('thread/list', params);
-      this.threads = sortThreads(r.threads ?? []);
+      const [active, archived] = await Promise.all([
+        app.call<{ threads: Thread[] }>('thread/list', { archived: false, limit: 200 }),
+        app.call<{ threads: Thread[] }>('thread/list', { archived: true, limit: 200 }),
+      ]);
+      this.threads = sortThreads(active.threads ?? []);
+      this.archivedThreads = sortThreads(archived.threads ?? []);
     } catch (e) {
       app.toast('error', errMsg(e));
     }
   }
 
   private upsertThread(t: Thread) {
-    const rest = this.threads.filter((x) => x.id !== t.id);
-    this.threads = sortThreads(t.archived === this.showArchived ? [...rest, t] : rest);
+    this.threads = sortThreads(this.threads.filter((x) => x.id !== t.id && !x.archived).concat(t.archived ? [] : [t]));
+    this.archivedThreads = sortThreads(this.archivedThreads.filter((x) => x.id !== t.id && x.archived).concat(t.archived ? [t] : []));
     if (this.main.id === t.id) this.main.thread = t;
     for (const s of this.sides) if (s.id === t.id) s.thread = t;
   }
 
-  /** Chats that are side chats of another chat, so the list can nest them. */
-  sideChatsOf(threadId: string): Thread[] {
-    return this.threads.filter((t) => t.forkedFrom === threadId);
+  get rootThreads(): Thread[] {
+    return this.threads.filter((t) => !isSideChat(t));
   }
 
-  get rootThreads(): Thread[] {
-    const ids = new Set(this.threads.map((t) => t.id));
-    return this.threads.filter((t) => !t.forkedFrom || !ids.has(t.forkedFrom));
+  get archivedRootThreads(): Thread[] {
+    return this.archivedThreads.filter((t) => !isSideChat(t));
   }
 
   async open(id: string, highlightItem?: string) {
@@ -263,26 +281,15 @@ class ChatState {
       app.toast('warn', 'Open a chat first, then ask about one of its messages.');
       return;
     }
-    const view = new ThreadView();
-    view.context = context;
-    view.selection = { ...this.main.selection };
-    this.sides = [...this.sides, view];
-    this.activeSideId = null;
-    const th = await app.try<Thread>('thread/start', {
-      channel: 'app',
-      projectId: projects.activeId ?? undefined,
-      parentThreadId: this.main.id,
-      title: 'Side chat',
-      settings: view.selection,
-    });
+    const source = this.main.thread;
+    if (!source) return;
+    const th = await app.try<Thread>('thread/fork', { threadId: source.id, sideChat: true });
     if (!th) {
-      this.sides = this.sides.filter((s) => s !== view);
       return;
     }
-    view.id = th.id;
-    view.thread = th;
-    this.activeSideId = th.id;
     this.upsertThread(th);
+    const view = await this.openSide(th.id, context);
+    if (!view) return;
     const opener = [context && `About this:\n\n${context}`, question].filter(Boolean).join('\n\n');
     if (question) await view.send(opener);
     return view;
@@ -327,6 +334,7 @@ class ChatState {
     const r = await app.try('thread/delete', { threadId: t.id });
     if (r === undefined) return;
     this.threads = this.threads.filter((x) => x.id !== t.id);
+    this.archivedThreads = this.archivedThreads.filter((x) => x.id !== t.id);
     if (this.main.id === t.id) this.newChat();
     this.closeSide(t.id);
   }
@@ -355,10 +363,6 @@ class ChatState {
     }
   }
 
-  async toggleArchived() {
-    this.showArchived = !this.showArchived;
-    await this.loadThreads();
-  }
 }
 
 export const chat = new ChatState();

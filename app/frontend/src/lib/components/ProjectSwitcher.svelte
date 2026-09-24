@@ -3,7 +3,7 @@
   import { projects } from '$lib/stores/projects.svelte';
   import { chat } from '$lib/stores/chat.svelte';
   import { app } from '$lib/stores/app.svelte';
-  import { dialog } from '$lib/stores/dialog.svelte';
+  import { createProject } from '$lib/createProject';
 
   let open = $state(false);
 
@@ -16,12 +16,7 @@
 
   async function add() {
     open = false;
-    const path = await dialog.prompt(
-      'Which folder should the agent work in? It can read and change files inside it, and nothing outside it.',
-      { okLabel: 'Open project' },
-    );
-    if (!path?.trim()) return;
-    const p = await projects.add(path.trim());
+    const p = await createProject();
     if (p) {
       chat.newChat();
       await chat.loadThreads();
@@ -72,7 +67,7 @@
       {/if}
       <div class="border-t border-line my-1"></div>
       <button class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-raised text-left" onclick={add}>
-        <Plus class="w-3.5 h-3.5" /> Open a folder…
+        <Plus class="w-3.5 h-3.5" /> New project…
       </button>
       <button
         class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-raised text-left text-muted"

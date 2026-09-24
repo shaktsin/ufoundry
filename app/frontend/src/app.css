@@ -84,6 +84,7 @@
   body {
     @apply bg-paper text-ink antialiased;
     font-size: 14px;
+    line-height: 1.4;
     -webkit-user-select: none;
     user-select: none;
   }
@@ -291,11 +292,11 @@
 
 /* Rendered markdown in agent messages. */
 .prose-chat {
-  @apply text-sm leading-relaxed text-ink;
+  @apply text-sm leading-[1.55] text-ink;
   overflow-wrap: anywhere;
 }
 .prose-chat > * + * {
-  margin-top: 0.6em;
+  margin-top: 0.45em;
 }
 .prose-chat h1,
 .prose-chat h2,

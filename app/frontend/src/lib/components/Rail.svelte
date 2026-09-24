@@ -9,7 +9,6 @@
     Repeat2,
     Settings,
     ShieldCheck,
-    SquarePen,
   } from '@lucide/svelte';
   import { app, type View } from '$lib/stores/app.svelte';
   import { chat } from '$lib/stores/chat.svelte';
@@ -41,17 +40,10 @@
     </button>
   </div>
 
-  <div class="px-2.5 pt-2.5">
-    <button class="new-chat-button {collapsed ? 'justify-center px-0' : ''}" title="New chat" onclick={() => chat.newChat()}>
-      <SquarePen class="w-4 h-4 shrink-0" />
-      {#if !collapsed}<span>New chat</span><kbd>⌘N</kbd>{/if}
-    </button>
-  </div>
-
   <nav class="rail-nav" aria-label="Main navigation">
     {#each nav as item}
       {@const active = app.view === item.id}
-      <button class="rail-nav-item {active ? 'is-active' : ''} {collapsed ? 'justify-center px-0' : ''}" title={collapsed ? item.label : undefined} onclick={() => (app.view = item.id)}>
+      <button class="rail-nav-item {active ? 'is-active' : ''} {collapsed ? 'justify-center px-0' : ''}" title={collapsed ? item.label : undefined} onclick={() => { if (item.id === 'chat' && app.view === 'chat') chat.newChat(); else app.view = item.id; }}>
         <item.icon class="w-[17px] h-[17px] shrink-0" strokeWidth={1.8} />
         {#if !collapsed}<span>{item.label}</span>{/if}
       </button>

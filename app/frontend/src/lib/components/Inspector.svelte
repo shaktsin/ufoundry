@@ -1,21 +1,12 @@
 <script lang="ts">
   import { X, FileText, GitCompare, Terminal, Undo2, RefreshCw } from '@lucide/svelte';
   import { inspector } from '$lib/stores/inspector.svelte';
-  import { chat } from '$lib/stores/chat.svelte';
   import DiffView from './DiffView.svelte';
 
   const tab = $derived(inspector.active);
 
   const icon = { file: FileText, diff: GitCompare, output: Terminal } as const;
 
-  async function askAboutThis() {
-    if (!tab) return;
-    const snippet =
-      tab.kind === 'diff'
-        ? `${tab.path} (${tab.change?.additions} added, ${tab.change?.deletions} removed)\n\n${(tab.change?.diff ?? '').slice(0, 2000)}`
-        : `${tab.path ?? tab.title}\n\n${(tab.content ?? tab.text ?? '').slice(0, 2000)}`;
-    await chat.startSide(snippet);
-  }
 </script>
 
 <div class="h-full flex flex-col bg-surface/40">
@@ -52,7 +43,6 @@
             <RefreshCw class="w-3.5 h-3.5" />
           </button>
         {/if}
-        <button class="btn-ghost btn-sm" onclick={askAboutThis}>Ask about this</button>
       </div>
     </div>
 

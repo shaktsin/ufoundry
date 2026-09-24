@@ -18,7 +18,7 @@
 </script>
 
 <h1 class="page-title mb-3">Settings</h1>
-<div class="flex gap-1 border-b border-line mb-5">
+<div class="flex flex-wrap gap-1 border-b border-line mb-4">
   {#each tabs as t}
     <button
       class="px-3 py-2 text-sm -mb-px border-b-2 {tab === t.id ? 'border-clay text-ink' : 'border-transparent text-muted hover:text-ink'}"

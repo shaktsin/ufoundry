@@ -8,6 +8,7 @@
   import ModelPicker from '$lib/components/ModelPicker.svelte';
   import DiffView from '$lib/components/DiffView.svelte';
   import type { FileChangeData, ModelSelection } from '$lib/types';
+  import { createProject } from '$lib/createProject';
 
   let instructions = $state('');
   let dirty = $state(false);
@@ -67,8 +68,8 @@
   }
 
   async function addProject() {
-    const path = await dialog.prompt('Which folder should the agent work in?', { okLabel: 'Open folder' });
-    if (path?.trim()) await projects.add(path.trim());
+    await createProject();
+    await chat.loadThreads();
   }
 </script>
 
@@ -78,13 +79,13 @@
       <h1 class="page-title">Projects</h1>
       <p class="text-xs text-muted mt-1">Each project is a folder with its own chats, tools, and instructions.</p>
     </div>
-    <button class="btn-primary ml-auto" onclick={addProject}><Plus class="w-4 h-4" />Open folder</button>
+    <button class="btn-primary ml-auto" onclick={addProject}><Plus class="w-4 h-4" />New project</button>
   </div>
   {#if projects.list.length === 0}
     <div class="card p-10 text-center">
       <FolderGit2 class="w-8 h-8 mx-auto text-muted mb-3" />
       <p class="text-sm text-ink-soft">No projects yet</p>
-      <p class="text-xs text-muted mt-1">Open a folder to give the agent a safe workspace.</p>
+      <p class="text-xs text-muted mt-1">Choose a folder and name it to give the agent a safe workspace.</p>
     </div>
   {:else}
     <div class="grid grid-cols-2 gap-3">
