@@ -2,6 +2,49 @@ package protocol
 
 import "time"
 
+// ConfiguredModel is a model the user has approved for use. The provider
+// catalog is a list of suggestions; this is the list the router may actually
+// spend money on. Authentication comes from the provider's keys and is
+// deliberately not a separate user-facing concept here.
+type ConfiguredModel struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Enabled  bool   `json:"enabled"`
+}
+
+// ModelPool is a named set of configured models to route among. Strategy says
+// how to order them: "priority" keeps the order the user gave, and the others
+// rank by what the complexity tiers rank by.
+type ModelPool struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Strategy string   `json:"strategy"`
+	Models   []string `json:"models"`
+	Enabled  bool     `json:"enabled"`
+}
+
+// Pool strategies.
+const (
+	PoolPriority = "priority" // the order the user listed
+	PoolBalanced = "balanced" // the Standard tier ranking
+	PoolQuality  = "quality"  // the Deep tier ranking
+	PoolFast     = "fast"     // the Quick tier ranking
+	PoolCheap    = "cheap"    // cheapest first
+)
+
+// RoutingConfig is the whole registry: what may be used, and how it is grouped.
+type RoutingConfig struct {
+	Models      []ConfiguredModel `json:"models"`
+	Pools       []ModelPool       `json:"pools"`
+	DefaultPool string            `json:"defaultPool,omitempty"`
+}
+
+// PoolProvider is the pseudo-provider a selection uses to name a pool rather
+// than a single model: {provider: "pool", model: "<pool id>"}.
+const PoolProvider = "pool"
+
 // Routing methods and events.
 const (
 	// MethodModelRoute is a dry run: what would this chat use right now, and
@@ -55,6 +98,9 @@ type ModelRouteParams struct {
 	ProjectID  string         `json:"projectId,omitempty"`
 	Override   ModelSelection `json:"override,omitempty"`
 	Complexity Complexity     `json:"complexity,omitempty"`
+	// Pool names a configured pool to route within, as "pool/<id>" does in a
+	// selection.
+	Pool string `json:"pool,omitempty"`
 	// Text lets Auto classify the same way a real turn would.
 	Text string `json:"text,omitempty"`
 	Role string `json:"role,omitempty"`

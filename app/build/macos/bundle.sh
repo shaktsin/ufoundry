@@ -78,7 +78,9 @@ printf 'APPL????' > "$OUT/Contents/PkgInfo"
 # Icon: build an .icns from the PNG when the tools are there.
 if command -v iconutil >/dev/null && command -v sips >/dev/null; then
     ICONSET="$TMP/appicon.iconset"; mkdir -p "$ICONSET"
-    for size in 16 32 64 128 256 512; do
+    # iconutil accepts the canonical macOS iconset names only. A standalone
+    # 64x64 entry is not part of that schema (32x32@2x already provides it).
+    for size in 16 32 128 256 512; do
         sips -z $size $size "$APP_DIR/icons/appicon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
         sips -z $((size * 2)) $((size * 2)) "$APP_DIR/icons/appicon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
     done

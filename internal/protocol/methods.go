@@ -31,6 +31,8 @@ const (
 	MethodModelSetHidden = "model/setHidden"
 	MethodModelRefresh   = "model/refresh"
 	MethodModelSetPrice  = "model/setPrice"
+	MethodRoutingGet     = "routing/get"
+	MethodRoutingSet     = "routing/set"
 
 	MethodCredentialList   = "credential/list"
 	MethodCredentialAdd    = "credential/add"

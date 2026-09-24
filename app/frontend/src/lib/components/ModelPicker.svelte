@@ -1,6 +1,6 @@
 <script lang="ts">
   import { app } from '$lib/stores/app.svelte';
-  import type { Complexity, ModelSelection } from '$lib/types';
+  import type { Complexity, ConfiguredModel, ModelSelection } from '$lib/types';
 
   let { value, onchange, compact = false }: { value: ModelSelection; onchange: (v: ModelSelection) => void; compact?: boolean } = $props();
 
@@ -12,8 +12,20 @@
   ];
 
   const modelKey = $derived(value.provider && value.model ? `${value.provider}/${value.model}` : value.provider ? `${value.provider}/` : '');
-  const keys = $derived(value.provider ? app.credentialsFor(value.provider) : []);
   const defaultComplexity = $derived(app.complexity?.default || 'auto');
+
+  const providerNames: Record<string, string> = {
+    claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', openai_compatible: 'OpenAI-compatible',
+  };
+  const pools = $derived(app.routing?.pools ?? []);
+  const configured = $derived(app.routing?.models ?? []);
+  const configuredByProvider = $derived.by(() => {
+    const groups: Record<string, ConfiguredModel[]> = {};
+    for (const model of configured) {
+      if (model.enabled) (groups[model.provider] ??= []).push(model);
+    }
+    return Object.entries(groups);
+  });
 
   function setModel(k: string) {
     if (!k) {
@@ -23,32 +35,34 @@
     const i = k.indexOf('/');
     const provider = k.slice(0, i);
     const model = k.slice(i + 1) || undefined;
-    const credentialId = provider === value.provider ? value.credentialId : undefined;
-    onchange({ ...value, provider, model, credentialId });
+    onchange({ ...value, provider, model, credentialId: undefined });
   }
 
   function setComplexity(c: Complexity) {
     onchange({ ...value, complexity: c === value.complexity ? undefined : c });
   }
 
-  function setKey(id: string) {
-    onchange({ ...value, credentialId: id || undefined });
-  }
 </script>
 
 <div class="flex items-center gap-1.5 flex-wrap">
   <select class="select max-w-56" title="Model" value={modelKey} onchange={(e) => setModel(e.currentTarget.value)}>
     <option value="">Default model</option>
-    {#each app.usableProviders as p}
-      <optgroup label={p.displayName}>
-        <option value={`${p.id}/`}>{p.displayName} default{p.defaultModel ? ` (${p.defaultModel})` : ''}</option>
-        {#each app.modelsFor(p.id) as m}
-          <option value={`${p.id}/${m.id}`}>{m.displayName || m.id}</option>
+    {#if pools.some((p) => p.enabled)}
+      <optgroup label="Model pools">
+        {#each pools.filter((p) => p.enabled) as pool}
+          <option value={`pool/${pool.id}`}>{pool.name}</option>
+        {/each}
+      </optgroup>
+    {/if}
+    {#each configuredByProvider as [provider, models]}
+      <optgroup label={providerNames[provider] ?? provider}>
+        {#each models as m}
+          <option value={`${m.provider}/${m.model}`}>{m.name || m.model}</option>
         {/each}
       </optgroup>
     {/each}
-    {#if value.provider && !app.usableProviders.some((p) => p.id === value.provider)}
-      <option value={modelKey}>{value.provider}/{value.model ?? 'default'} (no key)</option>
+    {#if value.provider && !configured.some((m) => `${m.provider}/${m.model}` === modelKey) && !pools.some((p) => `pool/${p.id}` === modelKey)}
+      <option value={modelKey}>{value.provider}/{value.model ?? 'default'} (not configured)</option>
     {/if}
   </select>
 
@@ -66,13 +80,4 @@
       </button>
     {/each}
   </div>
-
-  {#if keys.length > 1}
-    <select class="select" title="API key" value={value.credentialId ?? ''} onchange={(e) => setKey(e.currentTarget.value)}>
-      <option value="">Default key</option>
-      {#each keys as k}
-        <option value={k.id}>{k.label} ····{k.last4}</option>
-      {/each}
-    </select>
-  {/if}
 </div>

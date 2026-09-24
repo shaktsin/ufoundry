@@ -58,6 +58,7 @@ type Engine struct {
 	threadTurns  map[string]string      // thread id -> running turn id
 	approvals    map[string]chan bool   // pending approval id -> decision
 	budgetWarned map[string]string      // credential id -> month already warned
+	routing      protocol.RoutingConfig // the models the user has approved
 	presets      map[protocol.Complexity]protocol.ComplexityPreset
 	defaultCplx  protocol.Complexity
 	turnWaiters  map[string]chan protocol.Turn // turn id -> completion (task runs)
@@ -124,6 +125,9 @@ func New(ctx context.Context, o Options) (*Engine, error) {
 	})
 	e.Tasks.Register(reg)
 	if err := e.loadComplexity(ctx); err != nil {
+		return nil, err
+	}
+	if err := e.loadRouting(ctx); err != nil {
 		return nil, err
 	}
 	if n, err := o.Store.MarkStaleTurns(ctx); err != nil {

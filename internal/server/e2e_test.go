@@ -863,10 +863,12 @@ func TestRoutePreviewAndHealth(t *testing.T) {
 		t.Fatalf("health = %+v", health.Rows)
 	}
 
-	// The cooling key is offered as an alternative, but marked unavailable.
+	// The cooling pair is offered as an alternative, but marked unavailable, and
+	// nothing is routed to it.
 	h.call(protocol.MethodModelRoute, protocol.ModelRouteParams{}, &preview)
-	if preview.Chosen == nil || preview.Chosen.CredentialID != k2.ID {
-		t.Fatalf("still routing to the rate-limited key: %+v", preview.Chosen)
+	if preview.Chosen == nil ||
+		(preview.Chosen.CredentialID == cooling.CredentialID && preview.Chosen.Model == cooling.Model) {
+		t.Fatalf("still routing to the rate-limited model and key: %+v", preview.Chosen)
 	}
 	var explained bool
 	for _, alt := range preview.Alternatives {
@@ -888,5 +890,67 @@ func TestRoutePreviewAndHealth(t *testing.T) {
 		if row.CredentialID == k1.ID && row.CooldownEnd != nil {
 			t.Fatalf("cooldown not cleared: %+v", row)
 		}
+	}
+}
+
+func TestPoolFailover(t *testing.T) {
+	h := newHarness(t, nil)
+	claudeKey := h.addKey("claude", "claude-key", "sk-claude")
+	openai := &fakeProvider{id: "openai"}
+	h.eng.LLMs.Register(openai)
+	h.addKey("openai", "openai-key", "sk-openai")
+
+	routing := protocol.RoutingConfig{
+		Models: []protocol.ConfiguredModel{
+			{ID: "claude-primary", Name: "Claude primary", Provider: "claude", Model: "claude-test", Enabled: true},
+			{ID: "openai-backup", Name: "OpenAI backup", Provider: "openai", Model: "gpt-test", Enabled: true},
+		},
+		Pools: []protocol.ModelPool{{
+			ID: "coding", Name: "Coding", Strategy: "priority", Models: []string{"claude-primary", "openai-backup"}, Enabled: true,
+		}},
+		DefaultPool: "coding",
+	}
+	h.call(protocol.MethodRoutingSet, routing, &routing)
+	h.fake.push(func(llm.Request, string) ([]llm.Event, error) {
+		return nil, &llm.Error{Provider: "claude", Status: 429, Body: "subscription quota exhausted"}
+	})
+	openai.push(textReply("answered by OpenAI"))
+
+	var th protocol.Thread
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "pool",
+		Settings: protocol.ModelSelection{Provider: "pool", Model: "coding"}}, &th)
+	var started protocol.TurnStartResult
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "use the pool"}, &started)
+	turn, text, _ := h.waitTurn(started.Turn.ID, nil)
+	if turn.Status != protocol.TurnCompleted || text != "answered by OpenAI" {
+		t.Fatalf("pool fallback failed: turn=%+v text=%q", turn, text)
+	}
+	if turn.Resolved.Provider != "openai" || turn.Resolved.Model != "gpt-test" {
+		t.Fatalf("resolved route not updated: %+v", turn.Resolved)
+	}
+	openai.mu.Lock()
+	keys := append([]string(nil), openai.keys...)
+	openai.mu.Unlock()
+	if len(keys) != 1 || keys[0] != "sk-openai" {
+		t.Fatalf("OpenAI keys = %v", keys)
+	}
+
+	// The configured default pool is used when a chat has no explicit model.
+	// A locally enforced key budget also advances to the next pool choice.
+	h.call(protocol.MethodUsageSetBudget, protocol.UsageSetBudgetParams{
+		CredentialID: claudeKey.ID, MonthlyBudgetUSD: 0.01, HardStop: true,
+	}, nil)
+	if err := h.eng.Store.InsertUsage(h.ctx, store.UsageRecord{
+		CredentialID: claudeKey.ID, Provider: "claude", Model: "claude-test",
+		Usage: protocol.UsageTotals{CostUSD: 0.02}, Status: "ok",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	openai.push(textReply("default pool fallback"))
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "default pool"}, &th)
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "use the default"}, &started)
+	turn, text, _ = h.waitTurn(started.Turn.ID, nil)
+	if turn.Status != protocol.TurnCompleted || text != "default pool fallback" || turn.Resolved.Provider != "openai" {
+		t.Fatalf("default pool budget fallback failed: turn=%+v text=%q", turn, text)
 	}
 }

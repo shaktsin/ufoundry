@@ -179,6 +179,28 @@ export interface ModelHealthRow {
   updatedAt: string;
 }
 
+export interface ConfiguredModel {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  enabled: boolean;
+}
+
+export interface ModelPool {
+  id: string;
+  name: string;
+  strategy: 'priority' | 'balanced' | 'quality' | 'fast' | 'cheap';
+  models: string[];
+  enabled: boolean;
+}
+
+export interface RoutingConfig {
+  models: ConfiguredModel[];
+  pools: ModelPool[];
+  defaultPool?: string;
+}
+
 export interface RouteChangedEvent {
   threadId: string;
   turnId: string;

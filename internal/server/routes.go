@@ -195,6 +195,16 @@ func (s *Server) routes() map[string]handler {
 			}
 			return okResult{true}, e.Store.SetModelPrice(ctx, p)
 		}),
+		protocol.MethodRoutingGet: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
+			return e.RoutingConfig(), nil
+		}),
+		protocol.MethodRoutingSet: bind(func(ctx context.Context, c *conn, p protocol.RoutingConfig) (any, error) {
+			cfg, err := e.SetRoutingConfig(ctx, p)
+			if err != nil {
+				return nil, protocol.Errorf(protocol.CodeInvalidParams, "%v", err)
+			}
+			return cfg, nil
+		}),
 		protocol.MethodModelRoute: bind(func(ctx context.Context, c *conn, p protocol.ModelRouteParams) (any, error) {
 			return e.RoutePreview(ctx, p)
 		}),

@@ -31,6 +31,7 @@ type resolved struct {
 	preset protocol.ComplexityPreset
 	meta   models.Meta
 	cred   credentials.Resolved
+	poolID string
 	route  router.Route
 	plan   *router.Plan
 	trail  []protocol.RouteStep
@@ -50,28 +51,18 @@ func (e *Engine) resolveSelection(ctx context.Context, th protocol.Thread, o pro
 	o.Provider = config.NormalizeProvider(o.Provider)
 	ts := th.Settings
 
-	provider := firstNonEmpty(o.Provider, ts.Provider, e.Cfg.LLM.Provider)
-	if provider == "" {
-		provider = "claude"
+	pick, err := e.pickCandidates(protocol.ModelSelection{
+		Provider: firstNonEmpty(o.Provider, ts.Provider),
+		Model:    selectedModel(o, ts),
+	})
+	if err != nil {
+		return r, err
 	}
-	if _, ok := e.LLMs.Get(provider); !ok {
-		return r, fmt.Errorf("unknown provider %q", provider)
-	}
-	model := o.Model
-	if model == "" && ts.Provider == provider {
-		model = ts.Model
-	}
-	if model == "" && o.Provider == "" && ts.Provider == "" {
-		model = ts.Model
-	}
-	if model == "" {
-		model = e.defaultModel(provider)
-	}
-	if model == "" {
-		return r, fmt.Errorf("no model selected for %s; pick one in the chat or set a default in Settings", provider)
-	}
+	provider, model, candidates, strategy := pick.provider, pick.model, pick.candidates, pick.strategy
+	r.poolID = pick.poolID
+
 	credID := o.CredentialID
-	if credID == "" && ts.Provider == provider {
+	if credID == "" && (ts.Provider == provider || provider == "") {
 		credID = ts.CredentialID
 	}
 
@@ -94,12 +85,14 @@ func (e *Engine) resolveSelection(ctx context.Context, th protocol.Thread, o pro
 	// The router turns the pins and the level into an ordered list of routes:
 	// what to run now, and what to fall back to if it fails.
 	pinned := protocol.ModelSelection{Complexity: level, CredentialID: credID}
-	if o.Provider != "" || ts.Provider != "" || o.Model != "" || ts.Model != "" {
+	if pick.explicit {
 		pinned.Provider, pinned.Model = provider, model
 	}
 	plan, err := e.Router.Plan(ctx, router.Request{
-		Pinned: pinned,
-		Level:  level,
+		Pinned:     pinned,
+		Level:      level,
+		Candidates: candidates,
+		Strategy:   strategy,
 		Need: router.Capabilities{
 			Tools:  true,
 			Images: attachments > 0,
@@ -118,6 +111,18 @@ func (e *Engine) resolveSelection(ctx context.Context, th protocol.Thread, o pro
 	r.plan = plan
 	r.use(first)
 	return r, nil
+}
+
+// selectedModel picks the model out of a turn override and the thread's
+// settings, ignoring a thread's model when the turn names a different provider.
+func selectedModel(o, ts protocol.ModelSelection) string {
+	if o.Model != "" {
+		return o.Model
+	}
+	if o.Provider == "" || o.Provider == ts.Provider {
+		return ts.Model
+	}
+	return ""
 }
 
 func firstNonEmpty(vals ...string) string {

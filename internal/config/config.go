@@ -125,7 +125,32 @@ type ModelsConfig struct {
 	Complexity        map[string]ComplexityPreset `yaml:"complexity"`
 	// Roles overrides the model per role: title, intent, orchestrator, worker.
 	Roles map[string]AgentModelConfig `yaml:"roles"`
+	// Configured is the user-approved model list shown in the app.
+	Configured []ConfiguredModel `yaml:"configured"`
+	// Pools are ordered groups used for automatic cross-provider fallback.
+	Pools       []ModelPool `yaml:"pools"`
+	DefaultPool string      `yaml:"default_pool"`
 }
+
+type ConfiguredModel struct {
+	ID       string `yaml:"id"`
+	Name     string `yaml:"name"`
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
+	Enabled  *bool  `yaml:"enabled"`
+}
+
+func (m ConfiguredModel) IsEnabled() bool { return m.Enabled == nil || *m.Enabled }
+
+type ModelPool struct {
+	ID       string   `yaml:"id"`
+	Name     string   `yaml:"name"`
+	Strategy string   `yaml:"strategy"`
+	Models   []string `yaml:"models"`
+	Enabled  *bool    `yaml:"enabled"`
+}
+
+func (p ModelPool) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
 
 type ComplexityPreset struct {
 	Reasoning       string `yaml:"reasoning"`
@@ -301,6 +326,9 @@ func (c *Config) finalize() {
 		c.Models.DefaultComplexity = "auto"
 	}
 	c.LLM.Provider = NormalizeProvider(c.LLM.Provider)
+	for i := range c.Models.Configured {
+		c.Models.Configured[i].Provider = NormalizeProvider(c.Models.Configured[i].Provider)
+	}
 	if c.LLM.Providers != nil {
 		norm := make(map[string]LLMProviderConfig, len(c.LLM.Providers))
 		for k, v := range c.LLM.Providers {
@@ -318,6 +346,40 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("models.default_complexity: unknown value %q", c.Models.DefaultComplexity)
 	}
 	seen := map[string]bool{}
+	modelIDs := map[string]bool{}
+	for _, m := range c.Models.Configured {
+		if m.ID == "" || m.Provider == "" || m.Model == "" {
+			return fmt.Errorf("models.configured: id, provider and model are required")
+		}
+		if modelIDs[m.ID] {
+			return fmt.Errorf("models.configured: duplicate id %q", m.ID)
+		}
+		modelIDs[m.ID] = true
+	}
+	poolIDs := map[string]bool{}
+	for _, p := range c.Models.Pools {
+		if p.ID == "" || p.Name == "" {
+			return fmt.Errorf("models.pools: id and name are required")
+		}
+		if poolIDs[p.ID] {
+			return fmt.Errorf("models.pools: duplicate id %q", p.ID)
+		}
+		poolIDs[p.ID] = true
+		if p.Strategy != "" && p.Strategy != "priority" && p.Strategy != "balanced" && p.Strategy != "quality" && p.Strategy != "fast" && p.Strategy != "cheap" {
+			return fmt.Errorf("models.pools.%s: unknown strategy %q", p.ID, p.Strategy)
+		}
+		if len(p.Models) == 0 {
+			return fmt.Errorf("models.pools.%s: at least one model is required", p.ID)
+		}
+		for _, id := range p.Models {
+			if !modelIDs[id] {
+				return fmt.Errorf("models.pools.%s: unknown configured model %q", p.ID, id)
+			}
+		}
+	}
+	if c.Models.DefaultPool != "" && !poolIDs[c.Models.DefaultPool] {
+		return fmt.Errorf("models.default_pool: unknown pool %q", c.Models.DefaultPool)
+	}
 	for _, m := range c.MCPServers {
 		if m.Name == "" {
 			return fmt.Errorf("mcp_servers: every server needs a name")

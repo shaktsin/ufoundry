@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,5 +199,84 @@ func TestClassify(t *testing.T) {
 	}
 	if _, cd := Classify(&llm.Error{Status: 429, RetryAfter: 10 * time.Hour}); cd > 30*time.Minute {
 		t.Fatalf("retry-after not capped: %v", cd)
+	}
+}
+
+// A configured set is the whole world: the plan may not reach past it into the
+// provider catalog, whatever the catalog holds.
+func TestCandidatesAreTheOnlyModelsOffered(t *testing.T) {
+	ctx := context.Background()
+	r, creds, _ := newRouter(t)
+	addKey(t, creds, "claude", "only", "sk-one")
+
+	cands := []protocol.ConfiguredModel{
+		{ID: "a", Name: "Haiku", Provider: "claude", Model: "claude-haiku-4-5-20251001", Enabled: true},
+	}
+	plan, err := r.Plan(ctx, Request{Level: protocol.ComplexityDeep, Candidates: cands,
+		Strategy: protocol.PoolPriority, Need: Capabilities{Tools: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Routes) == 0 {
+		t.Fatalf("no routes: %+v", plan)
+	}
+	for _, rt := range plan.Routes {
+		if rt.Model != cands[0].Model {
+			t.Fatalf("offered a model nobody configured: %+v", rt)
+		}
+	}
+}
+
+func TestPoolStrategiesOrderCandidates(t *testing.T) {
+	ctx := context.Background()
+	r, creds, _ := newRouter(t)
+	addKey(t, creds, "claude", "only", "sk-one")
+
+	cheap := protocol.ConfiguredModel{ID: "h", Provider: "claude", Model: "claude-haiku-4-5-20251001", Enabled: true}
+	strong := protocol.ConfiguredModel{ID: "o", Provider: "claude", Model: "claude-opus-5", Enabled: true}
+	cands := []protocol.ConfiguredModel{cheap, strong}
+
+	first := func(strategy string) string {
+		plan, err := r.Plan(ctx, Request{Level: protocol.ComplexityStandard, Candidates: cands,
+			Strategy: strategy, Need: Capabilities{Tools: true}})
+		if err != nil || len(plan.Routes) == 0 {
+			t.Fatalf("%s: %+v %v", strategy, plan, err)
+		}
+		return plan.Routes[0].Model
+	}
+	if got := first(protocol.PoolPriority); got != cheap.Model {
+		t.Fatalf("priority should keep the user's order, got %s", got)
+	}
+	if got := first(protocol.PoolQuality); got != strong.Model {
+		t.Fatalf("quality should pick the stronger model, got %s", got)
+	}
+	if got := first(protocol.PoolCheap); got != cheap.Model {
+		t.Fatalf("cheap should pick the cheaper model, got %s", got)
+	}
+}
+
+// A provider in the pool with no key is not silently dropped: the plan says so.
+func TestCandidateWithoutAKeyIsExplained(t *testing.T) {
+	ctx := context.Background()
+	r, creds, _ := newRouter(t)
+	addKey(t, creds, "claude", "only", "sk-one")
+
+	cands := []protocol.ConfiguredModel{
+		{ID: "a", Provider: "claude", Model: "claude-sonnet-5", Enabled: true},
+		{ID: "b", Name: "GPT", Provider: "openai", Model: "gpt-5.6-sol", Enabled: true},
+	}
+	plan, err := r.Plan(ctx, Request{Level: protocol.ComplexityStandard, Candidates: cands,
+		Strategy: protocol.PoolPriority, Need: Capabilities{Tools: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var explained bool
+	for _, b := range plan.Blocked {
+		if b.Provider == "openai" && strings.Contains(b.Unavailable, "no usable key") {
+			explained = true
+		}
+	}
+	if !explained {
+		t.Fatalf("missing key not explained: %+v", plan.Blocked)
 	}
 }

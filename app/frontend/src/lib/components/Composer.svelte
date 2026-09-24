@@ -89,9 +89,20 @@
   const routeChip = $derived(
     route ? `${route.displayName || route.model}${fallbacks.length ? ` +${fallbacks.length}` : ''}` : '',
   );
+  // With nothing to run on, the chip says so rather than vanishing: this is
+  // exactly the moment the reason matters.
+  const blockedReason = $derived(view.route && !view.route.chosen ? view.route.reason || 'No model is available' : '');
   const routeTitle = $derived(
-    route
+    !route
       ? [
+          blockedReason,
+          ...(view.route?.alternatives ?? [])
+            .slice(0, 4)
+            .map((a) => `${a.displayName || a.model} (${a.credentialLabel || 'no key'}): ${a.unavailable}`),
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : [
           `Runs on ${route.displayName || route.model} (${route.credentialLabel || 'default key'})`,
           fallbacks.length
             ? `Falls back to ${fallbacks
@@ -103,8 +114,7 @@
             .filter((a) => a.unavailable)
             .slice(0, 3)
             .map((a) => `${a.displayName || a.model}: ${a.unavailable}`),
-        ].join('\n')
-      : '',
+        ].join('\n'),
   );
 
   const placeholder = $derived(
@@ -166,6 +176,10 @@
       {#if route}
         <span class="text-[11px] text-faint truncate {compact ? 'hidden sm:inline' : ''}" title={routeTitle}>
           {routeChip}
+        </span>
+      {:else if blockedReason}
+        <span class="text-[11px] text-rust truncate {compact ? 'hidden sm:inline' : ''}" title={routeTitle}>
+          Nothing available
         </span>
       {/if}
       <div class="ml-auto">

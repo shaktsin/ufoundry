@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -88,6 +89,13 @@ type Request struct {
 	Need   Capabilities
 	// MaxRoutes caps how many fallbacks to line up (default 6).
 	MaxRoutes int
+	// Candidates, when set, is the only set of models the plan may use: the
+	// registry the user has approved, or one pool from it. The catalog is not
+	// consulted for more, because spending money on a model nobody chose is
+	// exactly what the registry exists to prevent.
+	Candidates []protocol.ConfiguredModel
+	// Strategy orders the candidates; empty means the order they came in.
+	Strategy string
 }
 
 // Router builds plans and remembers how routes have been behaving.
@@ -160,6 +168,35 @@ func (r *Router) Plan(ctx context.Context, req Request) (*Plan, error) {
 		})
 	}
 
+	// A configured set short-circuits everything below: these are the models the
+	// user approved, in the order the pool asks for, and nothing else.
+	if len(req.Candidates) > 0 {
+		for i, cm := range r.order(ctx, req.Candidates, req.Strategy, level) {
+			why := protocol.RouteFallback
+			switch {
+			case cm.Provider == pinnedProvider && cm.Model == req.Pinned.Model:
+				why = protocol.RoutePinned
+			case i == 0:
+				why = protocol.RouteDefault
+			}
+			creds := r.credsFor(ctx, usable, cm.Provider, req.Pinned.CredentialID)
+			if len(creds) == 0 {
+				plan.Blocked = append(plan.Blocked, protocol.RouteInfo{
+					Provider: cm.Provider, Model: cm.Model, DisplayName: displayName(cm),
+					Why: why, Unavailable: "no usable key for " + cm.Provider,
+				})
+				continue
+			}
+			for _, c := range creds {
+				add(cm.Provider, cm.Model, why, c)
+			}
+		}
+		if len(plan.Routes) == 0 && plan.Reason == "" {
+			plan.Reason = r.explainEmpty(plan)
+		}
+		return plan, nil
+	}
+
 	// 1. A pinned model comes first, on the pinned key when there is one.
 	if pinnedProvider != "" && req.Pinned.Model != "" {
 		if creds := r.credsFor(ctx, usable, pinnedProvider, req.Pinned.CredentialID); len(creds) > 0 {
@@ -209,6 +246,53 @@ func (r *Router) Plan(ctx context.Context, req Request) (*Plan, error) {
 		plan.Reason = r.explainEmpty(plan)
 	}
 	return plan, nil
+}
+
+// order sorts configured models for a pool strategy. "priority" is the order
+// the user wrote down; the rest borrow the complexity tiers' ranking, so a
+// pool and a tier agree about what "fast" or "strongest" means.
+func (r *Router) order(ctx context.Context, in []protocol.ConfiguredModel, strategy string, level protocol.Complexity) []protocol.ConfiguredModel {
+	out := make([]protocol.ConfiguredModel, len(in))
+	copy(out, in)
+	switch strategy {
+	case protocol.PoolQuality:
+		level = protocol.ComplexityDeep
+	case protocol.PoolFast, protocol.PoolCheap:
+		level = protocol.ComplexityQuick
+	case protocol.PoolBalanced:
+		level = protocol.ComplexityStandard
+	default: // priority, or nothing set
+		return out
+	}
+	meta := make(map[string]models.Meta, len(out))
+	for _, m := range out {
+		meta[m.Provider+"/"+m.Model] = r.cat.Lookup(ctx, m.Provider, m.Model)
+	}
+	price := func(m protocol.ConfiguredModel) float64 {
+		x := meta[m.Provider+"/"+m.Model]
+		return x.In + 3*x.Out
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := meta[out[i].Provider+"/"+out[i].Model], meta[out[j].Provider+"/"+out[j].Model]
+		if level == protocol.ComplexityDeep {
+			if a.Reasoning != b.Reasoning {
+				return a.Reasoning
+			}
+			return price(out[i]) > price(out[j])
+		}
+		if a.Tools != b.Tools {
+			return a.Tools
+		}
+		return price(out[i]) < price(out[j])
+	})
+	return out
+}
+
+func displayName(m protocol.ConfiguredModel) string {
+	if m.Name != "" {
+		return m.Name
+	}
+	return m.Model
 }
 
 // unusable says why a route cannot be used right now, or "" when it can.
