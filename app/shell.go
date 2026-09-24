@@ -334,6 +334,20 @@ func (s *Shell) handleConnection(w http.ResponseWriter) {
 		fail("the engine's WebSocket is switched off (runtime.engine_ws_port is 0 in config.yaml)")
 		return
 	}
+	// The token file is intentionally persistent, so its presence does not
+	// prove the engine is alive. Check the socket before returning connection
+	// details; this also makes the UI's Retry button actually start a dead
+	// engine instead of repeatedly reconnecting to a stale endpoint.
+	if !s.Engine.Reachable() {
+		go s.ensureEngine()
+		mode, detail := s.Engine.Mode()
+		msg := "starting the engine…"
+		if mode == ModeStopped && detail != "" {
+			msg = "the engine could not be started: " + detail
+		}
+		fail(msg)
+		return
+	}
 	tok, err := os.ReadFile(ep.TokenPath)
 	if err != nil {
 		// Asking again is the user pressing "Retry now": take it as a cue to

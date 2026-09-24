@@ -56,14 +56,15 @@ func (w *Watcher) Run(ctx context.Context) {
 			w.log.Info("engine connection ended", "err", err)
 		}
 		w.shell.SetStatus(StatusOffline, detail)
-		// If the engine we started died, start it again.
-		if mode, _ := w.eng.Mode(); mode == ModeStopped || mode == ModeChild {
-			ectx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := w.eng.Ensure(ectx); err != nil {
-				w.log.Warn("engine restart", "err", err)
-			}
-			cancel()
+		// Recover regardless of how the previous engine was started. An engine
+		// discovered during app startup is marked external, but it may still go
+		// away later; leaving that mode offline forever makes the app's Retry
+		// affordance ineffective.
+		ectx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		if err := w.eng.Ensure(ectx); err != nil {
+			w.log.Warn("engine restart", "err", err)
 		}
+		cancel()
 		select {
 		case <-ctx.Done():
 			return
