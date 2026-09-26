@@ -11,9 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shaktsin/ufoundry/internal/llm"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/llm"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 //go:embed catalog.json

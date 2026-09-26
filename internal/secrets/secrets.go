@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// Service is the Keychain service name for all UFoundry secrets.
+// Service is the Keychain service name for all UMCode secrets.
 const Service = "com.ufoundry"
 
 // ErrNotFound is returned when a secret does not exist.

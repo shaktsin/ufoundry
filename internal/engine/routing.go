@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 const routingSettingKey = "model_routing"

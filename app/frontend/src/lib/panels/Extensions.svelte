@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { RefreshCw, Trash2, Download, RotateCw } from '@lucide/svelte';
+  import { RefreshCw, Trash2, Download, RotateCw, MonitorCheck } from '@lucide/svelte';
   import { app } from '$lib/stores/app.svelte';
   import { errMsg } from '$lib/format';
   import { dialog } from '$lib/stores/dialog.svelte';
@@ -71,6 +71,28 @@
   <h1 class="page-title">Plugins</h1>
   <button class="btn-ghost btn-sm ml-2" aria-label="Refresh" onclick={load}><RefreshCw class="w-3.5 h-3.5" /></button>
 </div>
+
+<section class="mb-8">
+  <h2 class="text-sm font-semibold text-ink-soft mb-2">Built-in plugins</h2>
+  <div class="grid gap-2">
+  <div class="card p-3 flex items-start gap-3">
+    <div class="w-9 h-9 rounded-lg bg-raised flex items-center justify-center text-clay"><MonitorCheck class="w-5 h-5" /></div>
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2"><span class="text-sm font-medium">Visual QA</span><span class="pill bg-raised text-muted">opt-in</span></div>
+      <p class="text-xs text-muted mt-1">Controls an isolated, app-managed Chromium against a task's scoped live preview. It captures rendered screenshots, page controls, console errors, failed requests, and user-flow evidence.</p>
+      <p class="text-[11px] text-faint mt-1">Enable it per project under Project settings. It never uses your normal browser profile and blocks navigation outside the preview origin.</p>
+    </div>
+  </div>
+  <div class="card p-3 flex items-start gap-3">
+    <div class="w-9 h-9 rounded-lg bg-raised flex items-center justify-center text-clay"><MonitorCheck class="w-5 h-5" /></div>
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2"><span class="text-sm font-medium">Computer Use</span><span class="pill bg-raised text-muted">opt-in · macOS</span></div>
+      <p class="text-xs text-muted mt-1">Controls an explicitly selected desktop app or browser through screenshots and user-like click, fill, type, key, and scroll actions.</p>
+      <p class="text-[11px] text-faint mt-1">Actions require approval. A separately signed helper owns Screen Recording and Accessibility permissions; stopping a session never quits your app.</p>
+    </div>
+  </div>
+  </div>
+</section>
 
 <section class="mb-8">
   <h2 class="text-sm font-semibold text-ink-soft mb-2">Skills</h2>

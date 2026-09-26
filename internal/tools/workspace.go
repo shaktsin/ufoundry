@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/umcode/internal/config"
 )
 
 // Operation is a file-system operation checked against a workspace ACL.

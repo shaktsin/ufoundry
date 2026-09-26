@@ -34,7 +34,7 @@ var launchdPlist = template.Must(template.New("plist").Parse(`<?xml version="1.0
 `))
 
 var systemdUnit = template.Must(template.New("unit").Parse(`[Unit]
-Description=UFoundry engine
+Description=UMCode engine
 
 [Service]
 ExecStart={{.Bin}}{{if .Config}} --config {{.Config}}{{end}} engine

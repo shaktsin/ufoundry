@@ -1,4 +1,4 @@
-# UFoundry Architecture
+# UMCode Architecture
 
 Reference for contributors and advanced users. Covers internals, message flow, tool routing, deployment, and extension points.
 
@@ -365,7 +365,7 @@ Set `connectors[].allow_login: true` in config for the first run when using `mak
 
 ```ini
 [Unit]
-Description=UFoundry
+Description=UMCode
 After=network.target
 
 [Service]

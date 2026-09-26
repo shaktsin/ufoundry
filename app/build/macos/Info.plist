@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>ufoundry</string>
+    <string>UMCode</string>
     <key>CFBundleDisplayName</key>
-    <string>ufoundry</string>
+    <string>UMCode</string>
     <key>CFBundleExecutable</key>
-    <string>UFoundry</string>
+    <string>UMCode</string>
     <key>CFBundleIdentifier</key>
     <string>com.ufoundry.app</string>
     <key>CFBundlePackageType</key>
@@ -26,8 +26,10 @@
     <key>LSUIElement</key>
     <false/>
     <key>NSHumanReadableCopyright</key>
-    <string>ufoundry</string>
+    <string>UMCode</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>ufoundry uses AppleScript to install the command-line tool.</string>
+    <string>UMCode uses AppleScript to install the command-line tool.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>UMCode can capture an app window when you enable the Computer Use plugin for a project.</string>
 </dict>
 </plist>

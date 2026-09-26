@@ -8,8 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/umcode/internal/compute"
+	"github.com/shaktsin/umcode/internal/computeruse"
+	"github.com/shaktsin/umcode/internal/config"
 )
 
 func TestWorkspaceACLAndSymlinks(t *testing.T) {
@@ -43,7 +46,7 @@ func TestShellRunAndRisk(t *testing.T) {
 	r := NewRegistry()
 	RegisterBuiltins(r, cfg, NewWorkspaces(cfg), nil)
 	project := t.TempDir()
-	ctx := WithScope(context.Background(), &Scope{ProjectID: "prj_1", ProjectName: "demo", Root: project, AllowShell: true})
+	ctx := WithScope(context.Background(), &Scope{ProjectID: "prj_1", ProjectName: "demo", Root: project, AllowShell: true, AllowNet: true})
 	sh, ok := r.Get("shell__run")
 	if !ok {
 		t.Fatal("shell.run not registered")
@@ -67,6 +70,214 @@ func TestShellRunAndRisk(t *testing.T) {
 	}
 	if _, err := sh.Call(ctx, json.RawMessage(`{"command":"sleep 5","timeout_seconds":1}`)); err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("timeout: %v", err)
+	}
+}
+
+func TestShellStreamsOutputBeforeCommandExits(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Tools.ShellEnabled = true
+	r := NewRegistry()
+	RegisterBuiltins(r, cfg, NewWorkspaces(cfg), nil)
+	sh, _ := r.Get("shell__run")
+	progress := make(chan string, 4)
+	ctx := WithScope(context.Background(), &Scope{ProjectName: "demo", Root: t.TempDir(), AllowShell: true, AllowNet: true,
+		Progress: func(s string) { progress <- s }})
+	done := make(chan error, 1)
+	go func() {
+		_, err := sh.Call(ctx, json.RawMessage(`{"command":"printf first; sleep 1; printf second"}`))
+		done <- err
+	}()
+	select {
+	case chunk := <-progress:
+		if !strings.Contains(chunk, "first") {
+			t.Fatalf("first streamed chunk = %q", chunk)
+		}
+	case err := <-done:
+		t.Fatalf("shell returned before streaming output: %v", err)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("command output was not streamed before exit")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+type fakeComputeRunner struct{ request compute.Request }
+
+func (f *fakeComputeRunner) Run(_ context.Context, req compute.Request) (int, error) {
+	f.request = req
+	_, _ = req.Stdout.Write([]byte("offline guest output"))
+	return 0, nil
+}
+
+func TestNetworkOffRequiresMicroVMAndPassesDenySetting(t *testing.T) {
+	root := t.TempDir()
+	args := json.RawMessage(`{"command":"echo safe"}`)
+	host := &shellRun{}
+	ctx := WithScope(context.Background(), &Scope{ProjectName: "demo", Root: root, AllowShell: true})
+	if _, err := host.Call(ctx, args); err == nil || !strings.Contains(err.Error(), "microVM") {
+		t.Fatalf("host shell should fail closed with network off: %v", err)
+	}
+	fake := &fakeComputeRunner{}
+	vm := &shellRun{compute: fake}
+	ctx = WithScope(context.Background(), &Scope{ProjectName: "demo", Root: root, AllowShell: true, UseCompute: true})
+	output, err := vm.Call(ctx, args)
+	if err != nil || fake.request.Network || !strings.Contains(output, "offline guest output") {
+		t.Fatalf("microVM offline call = %q, %+v, %v", output, fake.request, err)
+	}
+}
+
+type verificationCompute struct{ commands []string }
+
+func (f *verificationCompute) Run(_ context.Context, req compute.Request) (int, error) {
+	f.commands = append(f.commands, req.Command)
+	if strings.Contains(req.Command, "fail") {
+		_, _ = req.Stderr.Write([]byte("check failed"))
+		return 2, nil
+	}
+	_, _ = req.Stdout.Write([]byte("check passed"))
+	return 0, nil
+}
+
+func TestVerificationRunReportsEvidenceAndStopsOnFailure(t *testing.T) {
+	fake := &verificationCompute{}
+	tool := &verificationRun{shell: &shellRun{compute: fake}}
+	ctx := WithScope(context.Background(), &Scope{
+		ProjectID: "prj_1", ProjectName: "demo", Root: t.TempDir(), AllowShell: true, AllowNet: true, UseCompute: true,
+	})
+	out, err := tool.Call(ctx, json.RawMessage(`{"checks":[{"label":"typecheck","command":"check"},{"label":"tests","command":"fail"},{"label":"build","command":"build"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(fake.commands, ",") != "check,fail" || !strings.Contains(out, `"status":"failed"`) || !strings.Contains(out, `"exit_code":2`) {
+		t.Fatalf("verification output = %s; commands = %v", out, fake.commands)
+	}
+}
+
+func TestVerificationPlanUsesConfiguredScriptsAndReasons(t *testing.T) {
+	root := t.TempDir()
+	pkg := `{"scripts":{"check":"svelte-check","test":"vitest run","build":"vite build","test:e2e":"playwright test"}}`
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checks, manifests := planChecks(root, []string{"src/App.svelte"})
+	if len(manifests) != 1 || manifests[0] != "package.json" || len(checks) != 4 {
+		t.Fatalf("manifests=%v checks=%+v", manifests, checks)
+	}
+	for _, check := range checks {
+		if check.Reason == "" || check.RequiredCommand != "npm" {
+			t.Fatalf("check lacks review metadata: %+v", check)
+		}
+	}
+	if checks[3].Kind != "browser" || checks[3].Command != "npm run test:e2e" {
+		t.Fatalf("browser check = %+v", checks[3])
+	}
+}
+
+func TestFrontendChangedRecognizesVisualSources(t *testing.T) {
+	for _, files := range [][]string{{"src/App.svelte"}, {"web/components/Button.ts"}, {"pages/index.jsx"}} {
+		if !frontendChanged(files) {
+			t.Fatalf("frontendChanged(%v) = false", files)
+		}
+	}
+	if frontendChanged([]string{"internal/store/db.go", "README.md"}) {
+		t.Fatal("backend and documentation changes unexpectedly require Visual QA")
+	}
+}
+
+type missingCommandCompute struct{}
+
+func (*missingCommandCompute) Run(_ context.Context, req compute.Request) (int, error) {
+	if strings.HasPrefix(req.Command, "command -v ") {
+		return 127, nil
+	}
+	return 0, nil
+}
+
+func TestVerificationReportsMissingPrerequisiteAsNotRun(t *testing.T) {
+	tool := &verificationRun{shell: &shellRun{compute: &missingCommandCompute{}}}
+	ctx := WithScope(context.Background(), &Scope{ProjectID: "prj_1", ProjectName: "demo", Root: t.TempDir(), AllowShell: true, AllowNet: true, UseCompute: true})
+	out, err := tool.Call(ctx, json.RawMessage(`{"checks":[{"label":"browser","command":"pnpm test","required_command":"pnpm"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"status":"not_run"`) || !strings.Contains(out, `required command is unavailable: pnpm`) {
+		t.Fatalf("verification output = %s", out)
+	}
+}
+
+type browserCompute struct{}
+
+func (*browserCompute) Run(_ context.Context, req compute.Request) (int, error) {
+	if err := os.MkdirAll(filepath.Join(req.Dir, "test-results", "flow"), 0o755); err != nil {
+		return -1, err
+	}
+	if err := os.WriteFile(filepath.Join(req.Dir, "test-results", "flow", "failure.png"), []byte("png"), 0o644); err != nil {
+		return -1, err
+	}
+	if err := os.WriteFile(filepath.Join(req.Dir, "test-results", "flow", "trace.zip"), []byte("zip"), 0o644); err != nil {
+		return -1, err
+	}
+	_, _ = req.Stdout.Write([]byte("console.error: broken widget\nrequestfailed: /api/items\n"))
+	return 1, nil
+}
+
+func TestBrowserVerifyCapturesDiagnosticsAndArtifacts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "node_modules", ".bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "node_modules", ".bin", "playwright"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := &browserVerify{shell: &shellRun{compute: &browserCompute{}}}
+	ctx := WithScope(context.Background(), &Scope{ProjectID: "prj_1", ProjectName: "demo", Root: root, AllowShell: true, AllowNet: true, UseCompute: true})
+	out, err := tool.Call(ctx, json.RawMessage(`{"framework":"playwright","command":"npm run test:e2e"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"status":"failed"`) || !strings.Contains(out, `console.error`) ||
+		!strings.Contains(out, `failure.png`) || !strings.Contains(out, `trace.zip`) {
+		t.Fatalf("browser result = %s", out)
+	}
+}
+
+func TestBrowserVerifyReportsMissingDependencyAsNotRun(t *testing.T) {
+	root := t.TempDir()
+	tool := &browserVerify{shell: &shellRun{compute: &browserCompute{}}}
+	ctx := WithScope(context.Background(), &Scope{ProjectID: "prj_1", ProjectName: "demo", Root: root, AllowShell: true, AllowNet: true, UseCompute: true})
+	out, err := tool.Call(ctx, json.RawMessage(`{"framework":"playwright","command":"npm run test:e2e"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"status":"not_run"`) || !strings.Contains(out, `dependencies were not installed automatically`) {
+		t.Fatalf("browser result = %s", out)
+	}
+}
+
+type missingBrowserRuntimeCompute struct{}
+
+func (*missingBrowserRuntimeCompute) Run(_ context.Context, req compute.Request) (int, error) {
+	_, _ = req.Stderr.Write([]byte("Executable doesn't exist. Run playwright install."))
+	return 1, nil
+}
+
+func TestBrowserVerifyReportsMissingRuntimeAsNotRun(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "node_modules", ".bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "node_modules", ".bin", "playwright"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := &browserVerify{shell: &shellRun{compute: &missingBrowserRuntimeCompute{}}}
+	ctx := WithScope(context.Background(), &Scope{ProjectID: "prj_1", ProjectName: "demo", Root: root, AllowShell: true, AllowNet: true, UseCompute: true})
+	out, err := tool.Call(ctx, json.RawMessage(`{"framework":"playwright","command":"npm run test:e2e"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"status":"not_run"`) || !strings.Contains(out, `compatible browser executable is unavailable`) {
+		t.Fatalf("browser result = %s", out)
 	}
 }
 
@@ -128,5 +339,29 @@ func TestProjectScope(t *testing.T) {
 	scope.AllowNet = true
 	if _, err := sh.Call(ctx, json.RawMessage(`{"command":"echo ok"}`)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestComputerToolsAreOptInAndActionsRequireApproval(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	r := NewRegistry()
+	RegisterBuiltins(r, cfg, NewWorkspaces(cfg), nil, BuiltinServices{ComputerUse: nil})
+	if _, ok := r.Get("computer__act"); ok {
+		t.Fatal("computer tools registered without a manager")
+	}
+	r = NewRegistry()
+	RegisterBuiltins(r, cfg, NewWorkspaces(cfg), nil, BuiltinServices{ComputerUse: computeruse.NewManager(context.Background())})
+	for _, name := range []string{"computer__list", "computer__start", "computer__inspect", "computer__act", "computer__stop"} {
+		if _, ok := r.Get(name); !ok {
+			t.Fatalf("%s was not registered", name)
+		}
+	}
+	tool := &computerAct{}
+	if risk, _ := tool.Assess(json.RawMessage(`{"action":"click","x":10,"y":20}`)); risk != RiskRed {
+		t.Fatalf("computer action risk = %s, want red", risk)
+	}
+	ctx := WithScope(context.Background(), &Scope{ThreadID: "thread-1", Root: t.TempDir()})
+	if _, err := requireComputerScope(ctx); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("disabled Computer Use was allowed: %v", err)
 	}
 }

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/llm"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/secrets"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/llm"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/secrets"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 // ErrNoCredential means no usable key exists for a provider.

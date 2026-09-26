@@ -1,7 +1,8 @@
 import { app } from './app.svelte';
 import { projects } from './projects.svelte';
 import { errMsg } from '$lib/format';
-import type { Attachment, Item, ModelRouteResult, ModelSelection, RouteChangedEvent, SearchHit, Thread, Turn } from '$lib/types';
+import { inspector } from './inspector.svelte';
+import type { Attachment, BrowserVerificationResult, Item, ModelRouteResult, ModelSelection, RouteChangedEvent, SearchHit, Thread, Turn } from '$lib/types';
 
 function sortThreads(list: Thread[]): Thread[] {
   return [...list].sort((a, b) => {
@@ -25,6 +26,7 @@ export class ThreadView {
   loading = $state(false);
   sending = $state(false);
   selection = $state<ModelSelection>({});
+  workspaceMode = $state<'local' | 'worktree'>('local');
   /** What this side chat was opened about, shown above the first message. */
   context = $state('');
   highlightItem = $state<string | null>(null);
@@ -43,6 +45,7 @@ export class ThreadView {
   reset() {
     this.id = null;
     this.thread = null;
+    this.workspaceMode = 'local';
     this.turns = [];
     this.items = [];
     this.sending = false;
@@ -57,6 +60,7 @@ export class ThreadView {
       const r = await app.call<{ thread: Thread; turns: Turn[]; items: Item[] }>('thread/read', { threadId: id });
       if (this.id !== id) return;
       this.thread = r.thread;
+      this.workspaceMode = r.thread.workspaceMode || 'local';
       this.turns = r.turns ?? [];
       this.items = (r.items ?? []).sort((a, b) => a.seq - b.seq);
       this.selection = { ...(r.thread.settings ?? {}) };
@@ -178,12 +182,30 @@ class ChatState {
         if (v.id === p.threadId) void v.loadRoute();
       });
     });
-    r.on('item/started', (p: { item: Item }) => this.each((v) => v.applyItem(p.item)));
-    r.on('item/completed', (p: { item: Item }) => this.each((v) => v.applyItem(p.item)));
+    r.on('item/started', (p: { item: Item }) => {
+      this.each((v) => v.applyItem(p.item));
+      if (p.item.tool?.name === 'verification.run' || p.item.tool?.name === 'verification.plan') inspector.openOutput(p.item.tool.name === 'verification.plan' ? 'Verification plan' : 'Test output', p.item.tool.output || '', `verification:${p.item.id}`, true);
+      if (p.item.tool?.name === 'browser.verify' || p.item.tool?.name.startsWith('visual.')) inspector.openOutput('Browser verification', p.item.tool.output || '', `browser-output:${p.item.id}`, true);
+    });
+    r.on('item/completed', (p: { item: Item }) => {
+      this.each((v) => v.applyItem(p.item));
+      if (p.item.tool?.name === 'verification.run' || p.item.tool?.name === 'verification.plan') inspector.updateOutput(`verification:${p.item.id}`, p.item.tool.output || p.item.tool.error || '');
+      if (p.item.tool?.name === 'browser.verify' || p.item.tool?.name.startsWith('visual.')) {
+        inspector.updateOutput(`browser-output:${p.item.id}`, p.item.tool.output || p.item.tool.error || '');
+        try {
+          const report = JSON.parse(p.item.tool.output || '') as BrowserVerificationResult;
+          const view = [this.main, ...this.sides].find((candidate) => candidate.id === p.item.threadId);
+          inspector.openBrowserReport(report, p.item.id, p.item.threadId, view?.thread?.projectId, true);
+        } catch { /* Keep the raw output tab when a blocked call has no report. */ }
+      }
+    });
     r.on('item/delta', (p: { threadId: string; itemId: string; text?: string; output?: string }) => {
       this.each((v) => {
         if (v.id === p.threadId) v.applyDelta(p.itemId, p.text, p.output);
       });
+      const verification = this.main.items.find((item) => item.id === p.itemId) ?? this.sides.flatMap((view) => view.items).find((item) => item.id === p.itemId);
+      if (verification?.tool?.name === 'verification.run' || verification?.tool?.name === 'verification.plan') inspector.updateOutput(`verification:${p.itemId}`, verification.tool.output || '');
+      if (verification?.tool?.name === 'browser.verify' || verification?.tool?.name.startsWith('visual.')) inspector.updateOutput(`browser-output:${p.itemId}`, verification.tool.output || '');
     });
     app.onConnected(() => this.reload());
     // The approved models changed under us: re-ask what each chat would use.
@@ -266,6 +288,7 @@ class ChatState {
       const th = await app.call<Thread>('thread/start', {
         channel: 'app',
         projectId: projects.activeId ?? undefined,
+        workspaceMode: this.main.workspaceMode,
         settings: this.main.selection,
       });
       this.upsertThread(th);

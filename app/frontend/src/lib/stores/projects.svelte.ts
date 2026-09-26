@@ -1,6 +1,6 @@
 import { app } from './app.svelte';
 import { errMsg } from '$lib/format';
-import type { FileEntry, Project, ProjectFilesResult, ProjectInstructions, ProjectTools } from '$lib/types';
+import type { FileEntry, Project, ProjectFilesResult, ProjectTools } from '$lib/types';
 
 const LAST_PROJECT = 'ufoundry.lastProject';
 
@@ -29,7 +29,6 @@ class ProjectStore {
   /** Lazily loaded file tree, keyed by directory path ("" is the root). */
   tree = $state<Record<string, FileEntry[]>>({});
   expanded = $state<Record<string, boolean>>({});
-  instructions = $state<ProjectInstructions | null>(null);
 
   constructor() {
     app.rpc.on('project/updated', (p: { project: Project; deleted?: boolean }) => {
@@ -69,7 +68,6 @@ class ProjectStore {
     this.activeId = id;
     this.tree = {};
     this.expanded = {};
-    this.instructions = null;
     remember(id);
     if (!id) return;
     if (touch) {
@@ -97,7 +95,7 @@ class ProjectStore {
     return p;
   }
 
-  async update(id: string, patch: { name?: string; settings?: unknown; tools?: ProjectTools; archived?: boolean }) {
+  async update(id: string, patch: { name?: string; root?: string; settings?: unknown; tools?: ProjectTools; archived?: boolean }) {
     const p = await app.try<Project>('project/update', { projectId: id, ...patch });
     if (!p) return;
     const i = this.list.findIndex((x) => x.id === p.id);
@@ -125,20 +123,6 @@ class ProjectStore {
     if (open && !this.tree[path]) await this.loadDir(path);
   }
 
-  // ---- instructions ----
-
-  async loadInstructions() {
-    if (!this.activeId) return;
-    const r = await app.try<ProjectInstructions>('project/instructions', { projectId: this.activeId });
-    if (r) this.instructions = r;
-  }
-
-  async saveInstructions(content: string) {
-    if (!this.activeId) return;
-    const r = await app.try<ProjectInstructions>('project/instructions', { projectId: this.activeId, content },
-      'Project instructions saved.');
-    if (r) this.instructions = r;
-  }
 }
 
 export const projects = new ProjectStore();

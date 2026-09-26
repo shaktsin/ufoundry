@@ -11,7 +11,7 @@ The Makefile uses these defaults (configurable at top of Makefile):
 
 ```bash
 make install          # First-time installation (creates .venv)
-make init             # Configure UFoundry with control panel (saves to ~/.ufoundry/config.yaml)
+make init             # Configure UMCode with control panel (saves to ~/.ufoundry/config.yaml)
 make run              # Run in foreground with DEBUG logging
 ```
 
@@ -26,7 +26,7 @@ make quick-start      # Does install + init + start
 
 | Command | Description |
 |---------|-------------|
-| `make install` | Create venv and install UFoundry |
+| `make install` | Create venv and install UMCode |
 | `make dev-install` | Install with dev dependencies |
 | `make upgrade` | Upgrade all dependencies |
 
@@ -39,7 +39,7 @@ make quick-start      # Does install + init + start
 | `make config-show` | Display current config |
 | `make config-edit` | Edit config in editor |
 
-## 🎮 Running UFoundry
+## 🎮 Running UMCode
 
 | Command | Description |
 |---------|-------------|
@@ -71,7 +71,7 @@ make quick-start      # Does install + init + start
 |---------|-------------|
 | `make logs` | Watch logs in real-time (`tail -f`) |
 | `make status` | Show if daemon is running |
-| `make ps` | Show all UFoundry processes |
+| `make ps` | Show all UMCode processes |
 | `make info` | Show system information |
 
 ## 🛠️ Skills Management
@@ -108,7 +108,7 @@ make quick-start      # Does install + init + start
 | `make lint` | Run linters (flake8, mypy) |
 | `make format` | Format code with black |
 | `make check` | Run lint + test |
-| `make shell` | Open Python shell with UFoundry loaded |
+| `make shell` | Open Python shell with UMCode loaded |
 
 ## 📦 Build & Publish
 
@@ -202,8 +202,8 @@ make doctor        # Run diagnostics
 
 ### Complete Fresh Install
 ```bash
-git clone https://github.com/yourusername/ufoundry.git
-cd ufoundry
+git clone https://github.com/shaktsin/umcode.git
+cd umcode
 make quick-start   # Does everything!
 ```
 

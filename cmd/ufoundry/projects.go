@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/shaktsin/ufoundry/internal/projects"
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/projects"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // runProject implements `ufoundry project …`.

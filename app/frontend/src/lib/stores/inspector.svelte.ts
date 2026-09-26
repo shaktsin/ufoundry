@@ -1,14 +1,16 @@
 import { app } from './app.svelte';
 import { projects } from './projects.svelte';
-import type { FileChangeData, ProjectFileContent, RevertResult } from '$lib/types';
+import type { BrowserArtifact, BrowserVerificationResult, FileChangeData, PreviewEvent, PreviewSession, ProjectArtifactContent, ProjectFileContent, RevertResult } from '$lib/types';
 
-export type TabKind = 'file' | 'diff' | 'output';
+export type TabKind = 'file' | 'diff' | 'output' | 'preview' | 'browser' | 'artifact';
 
 export interface InspectorTab {
   id: string;
   kind: TabKind;
   title: string;
   path?: string;
+  projectId?: string;
+  threadId?: string;
   /** file */
   content?: string;
   truncated?: boolean;
@@ -17,6 +19,12 @@ export interface InspectorTab {
   change?: FileChangeData;
   /** tool output */
   text?: string;
+  /** live preview */
+  preview?: PreviewSession;
+  reload?: number;
+  browser?: BrowserVerificationResult;
+  artifact?: BrowserArtifact;
+  dataUrl?: string;
   loading?: boolean;
   error?: string;
 }
@@ -25,6 +33,16 @@ export interface InspectorTab {
 class Inspector {
   tabs = $state<InspectorTab[]>([]);
   activeId = $state<string | null>(null);
+
+  constructor() {
+    app.rpc.on('preview/started', (event: PreviewEvent) => this.openPreview(event.preview, true));
+    app.rpc.on('preview/output', (event: PreviewEvent) => this.updatePreview(event));
+    app.rpc.on('preview/stopped', (event: PreviewEvent) => this.updatePreview(event));
+    app.onConnected(async () => {
+      const r = await app.call<{ previews: PreviewSession[] }>('preview/list').catch(() => ({ previews: [] }));
+      for (const preview of r.previews ?? []) this.openPreview(preview, false);
+    });
+  }
 
   get open(): boolean {
     return this.tabs.length > 0;
@@ -53,13 +71,14 @@ class Inspector {
   }
 
   /** Open a file from the project, at whatever it says on disk now. */
-  async openFile(path: string) {
-    const id = 'file:' + path;
-    this.show({ id, kind: 'file', title: path.split('/').pop() || path, path, loading: true });
-    const projectId = projects.activeId;
+  async openFile(path: string, threadId?: string, projectId?: string) {
+    const resolvedProjectId = projectId ?? projects.activeId ?? undefined;
+    const id = `file:${threadId ?? ''}:${path}`;
+    this.show({ id, kind: 'file', title: path.split('/').pop() || path, path, threadId, projectId: resolvedProjectId, loading: true });
+    projectId = resolvedProjectId;
     if (!projectId) return;
-    const r = await app.try<ProjectFileContent>('project/readFile', { projectId, path });
-    const tab: InspectorTab = { id, kind: 'file', title: path.split('/').pop() || path, path };
+    const r = await app.try<ProjectFileContent>('project/readFile', { projectId, path, threadId });
+    const tab: InspectorTab = { id, kind: 'file', title: path.split('/').pop() || path, path, threadId, projectId };
     if (!r) tab.error = 'This file could not be read.';
     else Object.assign(tab, { content: r.content, truncated: r.truncated, binary: r.binary });
     this.show(tab);
@@ -72,8 +91,65 @@ class Inspector {
   }
 
   /** Open the full output of a tool call. */
-  openOutput(title: string, text: string) {
-    this.show({ id: 'out:' + title + ':' + text.length, kind: 'output', title, text });
+  openOutput(title: string, text: string, id = 'out:' + title + ':' + text.length, focus = true) {
+    const previous = this.activeId;
+    this.show({ id, kind: 'output', title, text });
+    if (!focus) this.activeId = previous ?? this.activeId;
+  }
+
+  updateOutput(id: string, text: string) {
+    this.tabs = this.tabs.map((tab) => tab.id === id ? { ...tab, text } : tab);
+  }
+
+  openBrowserReport(report: BrowserVerificationResult, itemId: string, threadId?: string, projectId?: string, focus = true) {
+    const id = `browser:${itemId}`;
+    const previous = this.activeId;
+    this.show({ id, kind: 'browser', title: 'Browser results', browser: report, threadId, projectId });
+    if (!focus) this.activeId = previous ?? this.activeId;
+  }
+
+  async openArtifact(artifact: BrowserArtifact, threadId?: string, projectId?: string) {
+    if (!artifact.mime_type?.startsWith('image/')) {
+      await this.openFile(artifact.path, threadId, projectId);
+      return;
+    }
+    const id = `artifact:${threadId ?? ''}:${artifact.path}`;
+    this.show({ id, kind: 'artifact', title: artifact.path.split('/').pop() || artifact.path, path: artifact.path, artifact, threadId, projectId, loading: true });
+    if (!projectId) return;
+    const result = await app.try<ProjectArtifactContent>('project/readArtifact', { projectId, threadId, path: artifact.path });
+    const tab: InspectorTab = { id, kind: 'artifact', title: artifact.path.split('/').pop() || artifact.path, path: artifact.path, artifact, threadId, projectId };
+    if (!result) tab.error = 'This browser artifact could not be read.';
+    else tab.dataUrl = `data:${result.mimeType};base64,${result.dataB64}`;
+    this.show(tab);
+  }
+
+  openPreview(preview: PreviewSession, focus = true) {
+    const id = `preview:${preview.id}`;
+    const existing = this.tabs.find((t) => t.id === id);
+    const tab: InspectorTab = {
+      ...existing, id, kind: 'preview', title: preview.title || 'Preview', preview,
+      text: preview.output ?? existing?.text ?? '', reload: existing?.reload ?? 0,
+    };
+    const previous = this.activeId;
+    this.show(tab);
+    if (!focus) this.activeId = previous ?? this.activeId;
+  }
+
+  private updatePreview(event: PreviewEvent) {
+    const id = `preview:${event.preview.id}`;
+    const existing = this.tabs.find((t) => t.id === id);
+    if (!existing) return;
+    const text = (existing.text ?? '') + (event.output ?? '');
+    const error = event.error || existing.error;
+    this.tabs = this.tabs.map((t) => t.id === id ? { ...t, preview: event.preview, text, error } : t);
+  }
+
+  reloadPreview(id: string) {
+    this.tabs = this.tabs.map((t) => t.id === id ? { ...t, reload: (t.reload ?? 0) + 1 } : t);
+  }
+
+  async stopPreview(previewId: string) {
+    await app.try('preview/stop', { previewId });
   }
 
   /** Undo the file changes of a turn, then refresh anything open. */
@@ -87,7 +163,7 @@ class Inspector {
     }
     if (r.reason && r.skipped?.length) app.toast('warn', r.reason);
     for (const tab of this.tabs) {
-      if (tab.kind === 'file' && tab.path && r.reverted.includes(tab.path)) await this.openFile(tab.path);
+      if (tab.kind === 'file' && tab.path && r.reverted.includes(tab.path)) await this.openFile(tab.path, tab.threadId, tab.projectId);
     }
     await projects.loadDir('');
   }

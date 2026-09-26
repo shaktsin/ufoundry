@@ -4,16 +4,20 @@ import "time"
 
 // Project methods (client → engine).
 const (
-	MethodProjectList         = "project/list"
-	MethodProjectCreate       = "project/create"
-	MethodProjectOpen         = "project/open"
-	MethodProjectUpdate       = "project/update"
-	MethodProjectDelete       = "project/delete"
-	MethodProjectInstructions = "project/instructions"
-	MethodProjectFiles        = "project/files"
-	MethodProjectReadFile     = "project/readFile"
-	MethodProjectDiff         = "project/diff"
-	MethodProjectRevertTurn   = "project/revertTurn"
+	MethodProjectList             = "project/list"
+	MethodProjectCreate           = "project/create"
+	MethodProjectOpen             = "project/open"
+	MethodProjectUpdate           = "project/update"
+	MethodProjectDelete           = "project/delete"
+	MethodProjectInstructions     = "project/instructions"
+	MethodProjectScanInstructions = "project/instructions/scan"
+	MethodProjectFiles            = "project/files"
+	MethodProjectReadFile         = "project/readFile"
+	MethodProjectReadArtifact     = "project/readArtifact"
+	MethodProjectDiff             = "project/diff"
+	MethodProjectRevertTurn       = "project/revertTurn"
+	MethodProjectKeepTask         = "project/keepTaskChanges"
+	MethodProjectDiscardTask      = "project/discardTaskWorkspace"
 
 	// NotifyProjectUpdated is sent when a project is created, changed or deleted.
 	NotifyProjectUpdated = "project/updated"
@@ -22,9 +26,15 @@ const (
 // ProjectTools says which tool groups are available inside a project.
 // A nil field means "use the engine default".
 type ProjectTools struct {
-	Shell   *bool `json:"shell,omitempty"`
-	Network *bool `json:"network,omitempty"` // network access from shell commands
-	Git     *bool `json:"git,omitempty"`
+	Shell            *bool `json:"shell,omitempty"`
+	Network          *bool `json:"network,omitempty"`     // network access from shell commands
+	Compute          *bool `json:"compute,omitempty"`     // run shell commands in an app-bundled microVM
+	VisualQA         *bool `json:"visualQa,omitempty"`    // let the agent control the isolated preview browser
+	ComputerUse      *bool `json:"computerUse,omitempty"` // let the agent control explicitly selected desktop apps
+	ComputeVCPUs     *int  `json:"computeVcpus,omitempty"`
+	ComputeMemoryMiB *int  `json:"computeMemoryMiB,omitempty"`
+	ComputeDiskMiB   *int  `json:"computeDiskMiB,omitempty"`
+	Git              *bool `json:"git,omitempty"`
 	// MCPServers, when set, limits which configured MCP servers this project
 	// may use. An empty slice means none; nil means all of them.
 	MCPServers []string `json:"mcpServers,omitempty"`
@@ -32,10 +42,11 @@ type ProjectTools struct {
 
 // VCSInfo is what the engine could learn about a project's checkout.
 type VCSInfo struct {
-	Kind   string `json:"kind"` // git, or "" when the folder is not a repo
-	Branch string `json:"branch,omitempty"`
-	Dirty  int    `json:"dirty"` // files with uncommitted changes
-	Remote string `json:"remote,omitempty"`
+	Kind      string `json:"kind"` // git, or "" when the folder is not a repo
+	HasCommit bool   `json:"hasCommit"`
+	Branch    string `json:"branch,omitempty"`
+	Dirty     int    `json:"dirty"` // files with uncommitted changes
+	Remote    string `json:"remote,omitempty"`
 }
 
 // Project is a folder the agent may work in, plus its settings. The root is
@@ -44,8 +55,7 @@ type Project struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Root string `json:"root"`
-	// InstructionsPath is the AGENT.md that applies to this project. Empty
-	// means the engine looks for AGENT.md, AGENTS.md then CLAUDE.md in the root.
+	// InstructionsPath is retained for older project records; UMCODE writes only UMCODE.md.
 	InstructionsPath string         `json:"instructionsPath,omitempty"`
 	Settings         ModelSelection `json:"settings"`
 	Tools            ProjectTools   `json:"tools"`
@@ -80,6 +90,7 @@ type ProjectIDParams struct {
 type ProjectUpdateParams struct {
 	ProjectID        string          `json:"projectId"`
 	Name             *string         `json:"name,omitempty"`
+	Root             *string         `json:"root,omitempty"`
 	Settings         *ModelSelection `json:"settings,omitempty"`
 	Tools            *ProjectTools   `json:"tools,omitempty"`
 	InstructionsPath *string         `json:"instructionsPath,omitempty"`
@@ -96,16 +107,24 @@ type InstructionSource struct {
 
 type ProjectInstructionsParams struct {
 	ProjectID string `json:"projectId"`
-	// Content, when non-nil, writes the project's AGENT.md before reading it back.
+	// Content, when non-nil, writes UMCODE.md before reading it back.
 	Content *string `json:"content,omitempty"`
 }
 
 type ProjectInstructionsResult struct {
 	// Composed is what the engine puts in the system prompt.
 	Composed string              `json:"composed"`
-	Project  string              `json:"project"` // the project file's own text
+	Project  string              `json:"project"` // UMCODE.md text
 	Path     string              `json:"path"`    // where a write would go
+	Exists   bool                `json:"exists"`
 	Sources  []InstructionSource `json:"sources"`
+}
+
+// ProjectInstructionDraft is a read-only scan result to review before saving.
+type ProjectInstructionDraft struct {
+	Content            string   `json:"content"`
+	ExistingUMCodeFile bool     `json:"existingUMCodeFile"`
+	ScannedFiles       []string `json:"scannedFiles"`
 }
 
 // FileEntry is one node of a project's file tree.
@@ -120,6 +139,7 @@ type FileEntry struct {
 
 type ProjectFilesParams struct {
 	ProjectID string `json:"projectId"`
+	ThreadID  string `json:"threadId,omitempty"`
 	Path      string `json:"path,omitempty"`  // directory, relative to the root
 	Depth     int    `json:"depth,omitempty"` // 1 (default) lists one level
 	Limit     int    `json:"limit,omitempty"`
@@ -133,6 +153,7 @@ type ProjectFilesResult struct {
 
 type ProjectReadFileParams struct {
 	ProjectID string `json:"projectId"`
+	ThreadID  string `json:"threadId,omitempty"`
 	Path      string `json:"path"`
 	MaxBytes  int    `json:"maxBytes,omitempty"`
 }
@@ -144,6 +165,19 @@ type ProjectReadFileResult struct {
 	Truncated bool      `json:"truncated,omitempty"`
 	Binary    bool      `json:"binary,omitempty"`
 	ModTime   time.Time `json:"modTime"`
+}
+
+type ProjectReadArtifactParams struct {
+	ProjectID string `json:"projectId"`
+	ThreadID  string `json:"threadId,omitempty"`
+	Path      string `json:"path"`
+}
+
+type ProjectReadArtifactResult struct {
+	Path     string `json:"path"`
+	MimeType string `json:"mimeType"`
+	DataB64  string `json:"dataB64"`
+	Bytes    int64  `json:"bytes"`
 }
 
 // File change actions.
@@ -190,6 +224,15 @@ type ProjectRevertTurnResult struct {
 	Reverted []string `json:"reverted"`
 	Skipped  []string `json:"skipped,omitempty"`
 	Reason   string   `json:"reason,omitempty"`
+}
+
+type TaskWorkspaceParams struct {
+	ThreadID string `json:"threadId"`
+}
+
+type TaskWorkspaceResult struct {
+	ChangedFiles int    `json:"changedFiles,omitempty"`
+	Message      string `json:"message"`
 }
 
 // ProjectEvent wraps a project for project/updated.

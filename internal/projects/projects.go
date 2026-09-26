@@ -12,10 +12,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/pathutil"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/compute"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/pathutil"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 // Service is the project registry.
@@ -58,6 +59,9 @@ func ExpandPath(p string) (string, error) {
 // Create registers a folder as a project. The folder must exist; a project for
 // the same folder (after resolving symlinks) is returned as an error.
 func (s *Service) Create(ctx context.Context, p protocol.ProjectCreateParams) (protocol.Project, error) {
+	if err := validateComputeTools(p.Tools); err != nil {
+		return protocol.Project{}, err
+	}
 	root, err := ExpandPath(p.Root)
 	if err != nil {
 		return protocol.Project{}, err
@@ -76,7 +80,7 @@ func (s *Service) Create(ctx context.Context, p protocol.ProjectCreateParams) (p
 		return protocol.Project{}, fmt.Errorf("%s is too broad to be a project; pick the folder you actually work in", root)
 	}
 	if pathutil.Within(s.cfg.Home, root) {
-		return protocol.Project{}, fmt.Errorf("%s is inside UFoundry's own data folder", root)
+		return protocol.Project{}, fmt.Errorf("%s is inside UMCode's own data folder", root)
 	}
 	// A row written before this normalisation may hold the other spelling.
 	if existing, err := s.st.ListProjects(ctx, true); err == nil {
@@ -140,6 +144,18 @@ func (s *Service) Open(ctx context.Context, id string) (protocol.Project, error)
 
 // Update changes a project's name, settings, tools or archived flag.
 func (s *Service) Update(ctx context.Context, p protocol.ProjectUpdateParams) (protocol.Project, error) {
+	if p.Root != nil {
+		root, err := s.validateRootChange(ctx, p.ProjectID, *p.Root)
+		if err != nil {
+			return protocol.Project{}, err
+		}
+		p.Root = &root
+	}
+	if p.Tools != nil {
+		if err := validateComputeTools(*p.Tools); err != nil {
+			return protocol.Project{}, err
+		}
+	}
 	if p.InstructionsPath != nil && *p.InstructionsPath != "" {
 		cur, err := s.st.GetProject(ctx, p.ProjectID)
 		if err != nil {
@@ -158,6 +174,65 @@ func (s *Service) Update(ctx context.Context, p protocol.ProjectUpdateParams) (p
 	}
 	s.invalidate(updated.ID)
 	return s.decorate(updated), nil
+}
+
+func (s *Service) validateRootChange(ctx context.Context, projectID, requested string) (string, error) {
+	current, err := s.st.GetProject(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	root, err := ExpandPath(requested)
+	if err != nil {
+		return "", err
+	}
+	root = pathutil.Resolved(root)
+	if pathutil.SameFolder(current.Root, root) {
+		return current.Root, nil
+	}
+	if current.Threads > 0 {
+		return "", errors.New("this project's folder cannot be changed while it has chats; create a new project to preserve their isolated workspaces")
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return "", fmt.Errorf("project folder %s cannot be opened: %w", root, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is a file, not a folder", root)
+	}
+	if home, err := os.UserHomeDir(); err == nil && (pathutil.SameFolder(root, home) || root == string(filepath.Separator)) {
+		return "", fmt.Errorf("%s is too broad to be a project; choose the folder you actually work in", root)
+	}
+	if pathutil.Within(s.cfg.Home, root) {
+		return "", fmt.Errorf("%s is inside UMCode's own data folder", root)
+	}
+	projects, err := s.st.ListProjects(ctx, true)
+	if err != nil {
+		return "", err
+	}
+	for _, other := range projects {
+		if other.ID != projectID && pathutil.SameFolder(other.Root, root) {
+			return "", fmt.Errorf("%s is already a project (%s)", root, other.Name)
+		}
+	}
+	return root, nil
+}
+
+func validateComputeTools(t protocol.ProjectTools) error {
+	if t.Compute != nil && *t.Compute {
+		if err := compute.CheckHostAvailability(); err != nil {
+			return err
+		}
+	}
+	if t.ComputeVCPUs != nil && (*t.ComputeVCPUs < 1 || *t.ComputeVCPUs > 8) {
+		return fmt.Errorf("compute vCPU limit must be between 1 and 8")
+	}
+	if t.ComputeMemoryMiB != nil && (*t.ComputeMemoryMiB < 512 || *t.ComputeMemoryMiB > 8192) {
+		return fmt.Errorf("compute memory limit must be between 512 and 8192 MiB")
+	}
+	if t.ComputeDiskMiB != nil && (*t.ComputeDiskMiB < 1024 || *t.ComputeDiskMiB > 16384) {
+		return fmt.Errorf("compute workspace limit must be between 1024 and 16384 MiB")
+	}
+	return nil
 }
 
 // Delete forgets a project. The folder is left alone.

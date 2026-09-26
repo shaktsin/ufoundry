@@ -7,10 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/pathutil"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/compute"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/pathutil"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 func newService(t *testing.T) (*Service, *store.Store, *config.Config) {
@@ -66,6 +67,117 @@ func TestCreateAndGuards(t *testing.T) {
 	}
 }
 
+func TestReadArtifactAllowsBoundedScreenshotsOnly(t *testing.T) {
+	svc, _, _ := newService(t)
+	root := t.TempDir()
+	p := protocol.Project{Root: root}
+	if err := os.WriteFile(filepath.Join(root, "shot.png"), []byte("image bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.ReadArtifact(context.Background(), p, protocol.ProjectReadArtifactParams{Path: "shot.png"})
+	if err != nil || got.MimeType != "image/png" || got.DataB64 == "" {
+		t.Fatalf("artifact = %+v, %v", got, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "trace.zip"), []byte("trace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ReadArtifact(context.Background(), p, protocol.ProjectReadArtifactParams{Path: "trace.zip"}); err == nil {
+		t.Fatal("executable/non-image artifact was returned inline")
+	}
+}
+
+func TestComputeResourceSettingsAreValidated(t *testing.T) {
+	svc, _, _ := newService(t)
+	badCPU := 9
+	if _, err := svc.Create(context.Background(), protocol.ProjectCreateParams{
+		Root: t.TempDir(), Tools: protocol.ProjectTools{ComputeVCPUs: &badCPU},
+	}); err == nil || !strings.Contains(err.Error(), "vCPU") {
+		t.Fatalf("invalid compute limit accepted: %v", err)
+	}
+	project, err := svc.Create(context.Background(), protocol.ProjectCreateParams{Root: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	badDisk := 512
+	if _, err := svc.Update(context.Background(), protocol.ProjectUpdateParams{
+		ProjectID: project.ID, Tools: &protocol.ProjectTools{ComputeDiskMiB: &badDisk},
+	}); err == nil || !strings.Contains(err.Error(), "workspace limit") {
+		t.Fatalf("invalid disk limit accepted: %v", err)
+	}
+}
+
+func TestProjectFolderCanChangeOnlyBeforeChatsExist(t *testing.T) {
+	svc, st, _ := newService(t)
+	ctx := context.Background()
+	oldRoot, newRoot := t.TempDir(), t.TempDir()
+	project, err := svc.Create(ctx, protocol.ProjectCreateParams{Root: oldRoot, Name: "Before"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "After"
+	updated, err := svc.Update(ctx, protocol.ProjectUpdateParams{ProjectID: project.ID, Name: &name, Root: &newRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != name || !pathutil.SameFolder(updated.Root, newRoot) {
+		t.Fatalf("updated project = %+v", updated)
+	}
+	if _, err := st.CreateThread(ctx, protocol.Thread{Title: "Existing chat", ProjectID: project.ID}); err != nil {
+		t.Fatal(err)
+	}
+	thirdRoot := t.TempDir()
+	if _, err := svc.Update(ctx, protocol.ProjectUpdateParams{ProjectID: project.ID, Root: &thirdRoot}); err == nil || !strings.Contains(err.Error(), "cannot be changed while it has chats") {
+		t.Fatalf("folder changed after project chats existed: %v", err)
+	}
+	unchanged, err := svc.Get(ctx, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pathutil.SameFolder(unchanged.Root, newRoot) {
+		t.Fatalf("rejected folder change mutated project root: %s", unchanged.Root)
+	}
+}
+
+func TestProjectComputeEnablementChecksHostReadiness(t *testing.T) {
+	svc, _, _ := newService(t)
+	project, err := svc.Create(context.Background(), protocol.ProjectCreateParams{Root: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	_, createErr := svc.Create(context.Background(), protocol.ProjectCreateParams{
+		Root: t.TempDir(), Tools: protocol.ProjectTools{Compute: &enabled},
+	})
+	hostErr := compute.CheckHostAvailability()
+	if hostErr != nil {
+		if createErr == nil || !strings.Contains(createErr.Error(), "isolated compute is unavailable") {
+			t.Fatalf("compute was enabled without host support: create err=%v, host err=%v", createErr, hostErr)
+		}
+		_, updateErr := svc.Update(context.Background(), protocol.ProjectUpdateParams{
+			ProjectID: project.ID, Tools: &protocol.ProjectTools{Compute: &enabled},
+		})
+		if updateErr == nil || !strings.Contains(updateErr.Error(), "isolated compute is unavailable") {
+			t.Fatalf("compute was enabled during project update without host support: %v", updateErr)
+		}
+		updated, err := svc.Get(context.Background(), project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Tools.Compute != nil && *updated.Tools.Compute {
+			t.Fatal("project persisted compute enabled after host preflight failed")
+		}
+		return
+	}
+	if createErr != nil {
+		t.Fatalf("compute should enable on project creation when host support is available: %v", createErr)
+	}
+	if _, err := svc.Update(context.Background(), protocol.ProjectUpdateParams{
+		ProjectID: project.ID, Tools: &protocol.ProjectTools{Compute: &enabled},
+	}); err != nil {
+		t.Fatalf("compute should enable on project update when host support is available: %v", err)
+	}
+}
+
 func TestResolveStaysInsideTheProject(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -109,25 +221,53 @@ func TestInstructionsComposition(t *testing.T) {
 	if len(sources) != 2 || sources[0].Scope != "global" || sources[1].Scope != "project" {
 		t.Fatalf("sources = %+v", sources)
 	}
-	// Working on a file picks up the nearest instructions above it.
+	// Working in a nested directory composes root-to-leaf instructions.
 	composed, sources = svc.InstructionsFor(ctx, p, "web/App.svelte")
 	if !strings.Contains(composed, "Svelte 5 runes") || len(sources) != 3 || sources[2].Scope != "nested" {
 		t.Fatalf("nested: %q %+v", composed, sources)
 	}
-	// AGENT.md wins over AGENTS.md when both exist.
-	os.WriteFile(filepath.Join(root, "AGENT.md"), []byte("Project: ours wins."), 0o644)
+	// UMCODE, AGENTS, and CLAUDE instructions are all composed; external files remain inputs.
+	os.WriteFile(filepath.Join(root, "UMCODE.md"), []byte("Project: UMCode guidance."), 0o644)
 	composed, _ = svc.InstructionsFor(ctx, p, "")
-	if !strings.Contains(composed, "ours wins") || strings.Contains(composed, "run make test") {
+	if !strings.Contains(composed, "UMCode guidance") || !strings.Contains(composed, "run make test") {
 		t.Fatalf("precedence: %q", composed)
 	}
-	// Writing through the service updates the file and the composition.
+	// The editor writes only UMCODE.md and leaves AGENTS.md and CLAUDE.md untouched.
 	text := "Project: written by the app."
 	res, err := svc.Instructions(ctx, p, &text)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Path != filepath.Join(pathutil.Resolved(root), "AGENT.md") || !strings.Contains(res.Composed, "written by the app") {
+	if res.Path != filepath.Join(pathutil.Resolved(root), "UMCODE.md") || !res.Exists || !strings.Contains(res.Composed, "written by the app") {
 		t.Fatalf("instructions = %+v", res)
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "AGENTS.md")); string(data) != "Project: run make test." {
+		t.Fatalf("AGENTS.md was modified: %q", data)
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "web", "CLAUDE.md")); string(data) != "Web: use Svelte 5 runes." {
+		t.Fatalf("CLAUDE.md was modified: %q", data)
+	}
+}
+
+func TestDraftInstructionsScansWithoutWriting(t *testing.T) {
+	svc, _, _ := newService(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/app\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("test:\n\tgo test ./...\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := protocol.Project{Name: "Sample", Root: root}
+	draft, err := svc.DraftInstructions(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(draft.Content, "go test ./...") || !strings.Contains(draft.Content, "UMCode project instructions") {
+		t.Fatalf("draft did not reflect scan: %q", draft.Content)
+	}
+	if _, err := os.Stat(filepath.Join(root, "UMCODE.md")); !os.IsNotExist(err) {
+		t.Fatalf("scan wrote UMCODE.md without approval: %v", err)
 	}
 }
 

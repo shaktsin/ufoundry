@@ -1,7 +1,7 @@
 import type { Endpoint } from './rpc';
 
 export interface ConnectionInfo extends Endpoint {
-  /** "mac" when running inside the UFoundry app, "browser" for the dev server. */
+  /** "mac" when running inside the UMCode app, "browser" for the dev server. */
   shell: string;
   version?: string;
 }

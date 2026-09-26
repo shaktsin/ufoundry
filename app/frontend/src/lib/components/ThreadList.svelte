@@ -107,7 +107,7 @@
         onclick={(e) => { e.stopPropagation(); menuFor = menuFor === t.id ? null : t.id; }}
       ><MoreHorizontal class="w-3.5 h-3.5" /></button>
       {#if menuFor === t.id}
-        <div class="absolute right-1 top-8 z-20 w-40 popover py-1 text-xs" role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+        <div class="absolute right-1 top-8 z-20 w-48 max-w-[calc(100vw-3rem)] popover py-1 text-xs" role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
           <button class="menu-item" onclick={() => { menuFor = null; chat.pin(t); }}><Pin class="w-3.5 h-3.5" />{t.pinned ? 'Unpin' : 'Pin'}</button>
           <button class="menu-item" onclick={async () => { menuFor = null; if (chat.main.id !== t.id) await chat.open(t.id); void chat.startSide(''); }}><MessageSquarePlus class="w-3.5 h-3.5" />Start side chat</button>
           <button class="menu-item" onclick={() => startRename(t)}>Rename</button>
@@ -167,14 +167,13 @@
                 onblur={() => commitProjectRename(group.project)}
               />
             {:else}
-              <button class="min-w-0 flex-1 text-left text-[11px] font-semibold text-ink-soft truncate py-1.5" title={group.project.root} onclick={() => openProject(group.project)} ondblclick={() => startProjectRename(group.project)}>{group.project.name}</button>
+              <button class="min-w-0 flex-1 text-left text-[11px] font-semibold text-ink-soft truncate py-1.5" title={group.project.root} onclick={() => toggle(group.project.id)} ondblclick={() => startProjectRename(group.project)}>{group.project.name}</button>
             {/if}
             <span class="text-[10px] text-faint">{group.threads.length}</span>
             <button class="p-1.5 text-faint hover:text-accent opacity-0 group-hover/project:opacity-100" aria-label={`Start a new chat in ${group.project.name}`} title="Start a new chat" onclick={() => chat.newChatFor(group.project.id)}><MessageSquarePlus class="w-3.5 h-3.5" /></button>
             <button class="p-1.5 text-faint hover:text-ink opacity-0 group-hover/project:opacity-100 {projectMenuFor === group.project.id ? 'opacity-100' : ''}" aria-label={`Project actions for ${group.project.name}`} title="Project actions" onclick={(e) => { e.stopPropagation(); projectMenuFor = projectMenuFor === group.project.id ? null : group.project.id; }}><MoreHorizontal class="w-3.5 h-3.5" /></button>
             {#if projectMenuFor === group.project.id}
-              <div class="absolute right-1 top-8 z-20 w-40 popover py-1 text-xs" role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-                <button class="menu-item" onclick={() => { projectMenuFor = null; startProjectRename(group.project); }}>Edit project name</button>
+              <div class="absolute right-1 top-8 z-20 w-64 max-w-[calc(100vw-3rem)] popover py-1 text-xs" role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
                 <button class="menu-item" onclick={() => { projectMenuFor = null; void openProject(group.project); }}>Project settings</button>
               </div>
             {/if}
@@ -224,6 +223,6 @@
 </div>
 
 <style>
-  .menu-item { display: flex; align-items: center; gap: 0.5rem; width: 100%; padding: 0.4rem 0.75rem; text-align: left; color: var(--color-ink-soft); }
+  .menu-item { display: flex; align-items: center; gap: 0.5rem; width: 100%; min-height: 2rem; padding: 0.4rem 0.75rem; text-align: left; line-height: 1.3; color: var(--color-ink-soft); }
   .menu-item:hover { background: var(--color-raised); }
 </style>

@@ -1,7 +1,6 @@
 <script lang="ts">
   import Keys from './settings/Keys.svelte';
   import Models from './settings/Models.svelte';
-  import Catalog from './settings/Catalog.svelte';
   import ComplexityTab from './settings/Complexity.svelte';
   import Engine from './settings/Engine.svelte';
   import Providers from './settings/Providers.svelte';
@@ -10,7 +9,6 @@
     { id: 'providers', label: 'Providers' },
     { id: 'keys', label: 'API keys' },
     { id: 'models', label: 'Models' },
-    { id: 'catalog', label: 'Catalog' },
     { id: 'complexity', label: 'Complexity' },
     { id: 'engine', label: 'Engine & app' },
   ] as const;
@@ -30,7 +28,6 @@
 {#if tab === 'providers'}<Providers />
 {:else if tab === 'keys'}<Keys />
 {:else if tab === 'models'}<Models />
-{:else if tab === 'catalog'}<Catalog />
 {:else if tab === 'complexity'}<ComplexityTab />
 {:else}<Engine />
 {/if}

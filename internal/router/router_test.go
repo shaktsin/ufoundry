@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/credentials"
-	"github.com/shaktsin/ufoundry/internal/llm"
-	"github.com/shaktsin/ufoundry/internal/models"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/secrets"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/credentials"
+	"github.com/shaktsin/umcode/internal/llm"
+	"github.com/shaktsin/umcode/internal/models"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/secrets"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 func newRouter(t *testing.T) (*Router, *credentials.Service, *store.Store) {

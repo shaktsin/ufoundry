@@ -218,7 +218,7 @@ def store_provider_api_key(provider: str, api_key: str) -> None:
 
 
 def run_wizard(config_path: Optional[str] = None) -> str:
-    print("UFoundry setup wizard")
+    print("UMCode setup wizard")
     provider = _prompt_choice(
         "Select LLM provider", ["openai", "claude", "gemini"], default="openai"
     )

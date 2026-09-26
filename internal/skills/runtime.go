@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/procutil"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/procutil"
 )
 
 // runtimes prepares per-skill environments; venvs are created lazily on first use.

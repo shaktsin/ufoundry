@@ -4,8 +4,8 @@ package policy
 import (
 	"path"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/tools"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/tools"
 )
 
 // Decision is the outcome of a policy check.

@@ -1,6 +1,6 @@
-# UFoundry Go engine
+# UMCode Go engine
 
-The Go engine is the new core of UFoundry: one binary (`ufoundry`) that is both the always-on engine and the CLI. The Mac app and other clients talk to it through the engine protocol described below. It runs alongside the Python app during the migration and shares its `~/.ufoundry` folder and SQLite database.
+The Go engine is the new core of UMCode: one binary (`ufoundry`) that is both the always-on engine and the CLI. The Mac app and other clients talk to it through the engine protocol described below. It runs alongside the Python app during the migration and shares its `~/.ufoundry` folder and SQLite database.
 
 Status: milestones M0–M5 of the [rewrite plan](https://claude.ai/code/artifact/259caf02-238a-46e2-ad53-ee346d97c407) (engine, agent loop, skills, MCP, scheduled tasks, projects and the sandbox), plus the Mac app (M5) and the engine side of M6 (chats, models, complexity, API keys and usage). Connectors (Telegram, Gmail, Discord), Google Workspace tools and agent teams are still served by the Python app.
 
@@ -21,10 +21,10 @@ API keys go to the macOS Keychain (service `com.ufoundry`); on Linux they are ke
 
 ## The Mac app
 
-`UFoundry.app` is a [Wails v3](https://v3.wails.io) shell around a Svelte UI that speaks the engine protocol over the WebSocket — the same protocol the CLI uses, so the app is only a client.
+`UMCode.app` is a [Wails v3](https://v3.wails.io) shell around a Svelte UI that speaks the engine protocol over the WebSocket — the same protocol the CLI uses, so the app is only a client.
 
 ```sh
-make app-build            # → bin/UFoundry.app (macOS; add app-build-universal for arm64 + x86_64)
+make app-build            # → bin/UMCode.app (macOS; add app-build-universal for arm64 + x86_64)
 make app-dev              # the UI in a browser against a running engine, with hot reload
 make app-check            # svelte-check + the UI's unit tests
 ```

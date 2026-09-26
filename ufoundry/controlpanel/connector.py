@@ -1,6 +1,6 @@
 """Gateway WebSocket connector for the control panel.
 
-Connects to the UFoundry gateway as a 'web-panel' control connector.
+Connects to the UMCode gateway as a 'web-panel' control connector.
 Forwards incoming assistant messages to browser clients via EventBroadcaster.
 Forwards outgoing admin messages to the gateway.
 """
@@ -25,7 +25,7 @@ PANEL_CHAT_ID = "admin"
 
 
 class GatewayConnector:
-    """Maintains a persistent WebSocket connection to the UFoundry gateway."""
+    """Maintains a persistent WebSocket connection to the UMCode gateway."""
 
     def __init__(self, ws_url: str, ws_token: str, store: PanelStore) -> None:
         self.ws_url = ws_url
@@ -104,7 +104,7 @@ class GatewayConnector:
                 raise ConnectionError(f"Unexpected handshake response: {msg}")
 
             self.store.gateway_connected = True
-            logger.info("Connected to UFoundry gateway as web-panel")
+            logger.info("Connected to UMCode gateway as web-panel")
             if self._broadcaster:
                 await self._broadcaster.broadcast_event("gateway_status", {"connected": True})
 

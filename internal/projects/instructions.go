@@ -2,18 +2,20 @@ package projects
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
-// Instruction file names, in the order they are looked for. AGENT.md is ours;
-// the other two let a repo set up for Codex or Claude Code work unchanged.
-var instructionNames = []string{"AGENT.md", "AGENTS.md", "CLAUDE.md"}
+// Instruction files are read-only inputs except UMCODE.md, which UMCODE owns.
+// Keep AGENTS.md and CLAUDE.md compatible without ever selecting them as write targets.
+var instructionNames = []string{"UMCODE.md", "AGENTS.md", "CLAUDE.md"}
 
 // maxInstructionBytes caps one instruction file; the rest is dropped with a note.
 const maxInstructionBytes = 32 << 10
@@ -25,9 +27,8 @@ type instructionCache struct {
 	nested   string
 }
 
-// InstructionsFor composes the instructions that apply to a turn: the global
-// AGENT.md, then the project's, then the nearest one in the subtree the turn is
-// working in (hint may be empty).
+// InstructionsFor composes global instructions, all project-root instructions,
+// then nested instructions from the project root through the hinted path.
 func (s *Service) InstructionsFor(ctx context.Context, p protocol.Project, hint string) (string, []protocol.InstructionSource) {
 	files := s.instructionFiles(p, hint)
 	key := p.ID + "\x00" + hint
@@ -90,24 +91,23 @@ func (s *Service) instructionFiles(p protocol.Project, hint string) []instructio
 	if p.Root == "" {
 		return out
 	}
-	if p.InstructionsPath != "" {
-		out = append(out, instructionFile{scope: "project", path: p.InstructionsPath})
-	} else if f := firstInstructionFile(p.Root); f != "" {
-		out = append(out, instructionFile{scope: "project", path: f})
-	}
-	// The nearest instruction file above the file or folder being worked on.
+	out = append(out, instructionFilesAt(p.Root, "project")...)
+	// Include every nested instruction file root-to-leaf, as Codex does.
 	if hint != "" {
 		if abs, err := Resolve(p.Root, hint); err == nil {
 			dir := abs
 			if st, err := os.Stat(abs); err != nil || !st.IsDir() {
 				dir = filepath.Dir(abs)
 			}
-			for within(p.Root, dir) && dir != p.Root {
-				if f := firstInstructionFile(dir); f != "" {
-					out = append(out, instructionFile{scope: "nested", path: f})
-					break
+			if within(p.Root, dir) {
+				var dirs []string
+				for within(p.Root, dir) && dir != p.Root {
+					dirs = append(dirs, dir)
+					dir = filepath.Dir(dir)
 				}
-				dir = filepath.Dir(dir)
+				for i := len(dirs) - 1; i >= 0; i-- {
+					out = append(out, instructionFilesAt(dirs[i], "nested")...)
+				}
 			}
 		}
 	}
@@ -122,6 +122,17 @@ func firstInstructionFile(dir string) string {
 		}
 	}
 	return ""
+}
+
+func instructionFilesAt(dir, scope string) []instructionFile {
+	var out []instructionFile
+	for _, name := range instructionNames {
+		path := filepath.Join(dir, name)
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			out = append(out, instructionFile{scope: scope, path: path})
+		}
+	}
+	return out
 }
 
 func sameStamps(stamps map[string]time.Time, files []instructionFile) bool {
@@ -153,20 +164,12 @@ func (s *Service) invalidate(projectID string) {
 	}
 }
 
-// InstructionsPath is where project/instructions writes: the configured file,
-// an existing AGENT.md/AGENTS.md/CLAUDE.md, or a new AGENT.md in the root.
+// InstructionsPath is the only project instruction file UMCODE writes.
 func InstructionsPath(p protocol.Project) string {
-	if p.InstructionsPath != "" {
-		return p.InstructionsPath
-	}
-	if f := firstInstructionFile(p.Root); f != "" {
-		return f
-	}
-	return filepath.Join(p.Root, "AGENT.md")
+	return filepath.Join(p.Root, "UMCODE.md")
 }
 
-// Instructions reads (and optionally writes) a project's own instruction file
-// and returns the composed prompt.
+// Instructions reads (and optionally writes) UMCODE.md and returns the composed prompt.
 func (s *Service) Instructions(ctx context.Context, p protocol.Project, content *string) (protocol.ProjectInstructionsResult, error) {
 	path := InstructionsPath(p)
 	if content != nil {
@@ -182,8 +185,133 @@ func (s *Service) Instructions(ctx context.Context, p protocol.Project, content 
 	if data, err := os.ReadFile(path); err == nil {
 		own = string(data)
 	}
+	_, statErr := os.Lstat(path)
 	composed, sources := s.InstructionsFor(ctx, p, "")
 	return protocol.ProjectInstructionsResult{
-		Composed: composed, Project: own, Path: path, Sources: sources,
+		Composed: composed, Project: own, Path: path, Exists: statErr == nil, Sources: sources,
 	}, nil
+}
+
+// DraftInstructions scans a bounded set of repository metadata and proposes
+// UMCODE.md content. It never writes to the project folder.
+func (s *Service) DraftInstructions(p protocol.Project) (protocol.ProjectInstructionDraft, error) {
+	if p.Root == "" {
+		return protocol.ProjectInstructionDraft{}, fmt.Errorf("project folder is unavailable")
+	}
+	root, err := filepath.Abs(p.Root)
+	if err != nil {
+		return protocol.ProjectInstructionDraft{}, err
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return protocol.ProjectInstructionDraft{}, fmt.Errorf("project folder is not available")
+	}
+	draft := protocol.ProjectInstructionDraft{ScannedFiles: []string{}}
+	if _, err := os.Stat(filepath.Join(root, "UMCODE.md")); err == nil {
+		draft.ExistingUMCodeFile = true
+	}
+	ignored := map[string]bool{".git": true, "node_modules": true, "vendor": true, "dist": true, "build": true, ".venv": true, "venv": true, "target": true, "coverage": true}
+	var dirs []string
+	var walk func(string, int)
+	walk = func(dir string, depth int) {
+		entries, readErr := os.ReadDir(dir)
+		if readErr != nil {
+			return
+		}
+		for _, entry := range entries {
+			if len(draft.ScannedFiles) >= 180 {
+				return
+			}
+			rel, _ := filepath.Rel(root, filepath.Join(dir, entry.Name()))
+			if entry.IsDir() {
+				if depth < 2 && !ignored[entry.Name()] {
+					dirs = append(dirs, filepath.ToSlash(rel)+"/")
+					walk(filepath.Join(dir, entry.Name()), depth+1)
+				}
+				continue
+			}
+			draft.ScannedFiles = append(draft.ScannedFiles, filepath.ToSlash(rel))
+		}
+	}
+	walk(root, 0)
+	sort.Strings(draft.ScannedFiles)
+	sort.Strings(dirs)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# UMCode project instructions\n\nProject: %s\n\n", p.Name)
+	b.WriteString("## Repository map\n\n")
+	if len(dirs) == 0 {
+		b.WriteString("- (No subdirectories detected in the bounded scan.)\n")
+	} else {
+		for _, dir := range dirs {
+			fmt.Fprintf(&b, "- `%s`\n", dir)
+		}
+	}
+	b.WriteString("\n## Detected project files\n\n")
+	for _, name := range []string{"go.mod", "package.json", "pnpm-workspace.yaml", "Cargo.toml", "pyproject.toml", "requirements.txt", "Makefile", "README.md"} {
+		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
+			draft.ScannedFiles = appendUnique(draft.ScannedFiles, name)
+			fmt.Fprintf(&b, "- `%s`\n", name)
+		}
+	}
+	b.WriteString("\n## Build and test commands\n\n")
+	commands := detectedCommands(root)
+	if len(commands) == 0 {
+		b.WriteString("- No common build/test command was detected. Inspect the project documentation before choosing commands.\n")
+	} else {
+		for _, command := range commands {
+			fmt.Fprintf(&b, "- `%s`\n", command)
+		}
+	}
+	b.WriteString("\n## Working guidelines\n\n- Read the relevant implementation and tests before editing.\n- Keep changes focused and follow the conventions already used in the repository.\n- Run the most relevant tests or checks and report their results.\n- Do not overwrite user changes or modify generated files unless the task requires it.\n")
+	draft.Content = b.String()
+	return draft, nil
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func detectedCommands(root string) []string {
+	var commands []string
+	if data, err := os.ReadFile(filepath.Join(root, "Makefile")); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "test:") || strings.HasPrefix(line, "check:") || strings.HasPrefix(line, "lint:") || strings.HasPrefix(line, "build:") {
+				commands = append(commands, "make "+strings.TrimSuffix(strings.SplitN(line, ":", 2)[0], "!"))
+			}
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+		var pkg struct {
+			PackageManager string            `json:"packageManager"`
+			Scripts        map[string]string `json:"scripts"`
+		}
+		if json.Unmarshal(data, &pkg) == nil {
+			pm := strings.SplitN(pkg.PackageManager, "@", 2)[0]
+			if pm == "" {
+				pm = "npm"
+			}
+			for _, script := range []string{"test", "check", "lint", "build"} {
+				if _, ok := pkg.Scripts[script]; ok {
+					commands = append(commands, pm+" run "+script)
+				}
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+		commands = append(commands, "go test ./...", "go build ./...")
+	}
+	if _, err := os.Stat(filepath.Join(root, "Cargo.toml")); err == nil {
+		commands = append(commands, "cargo test", "cargo build")
+	}
+	if _, err := os.Stat(filepath.Join(root, "pyproject.toml")); err == nil {
+		commands = append(commands, "python -m pytest")
+	}
+	sort.Strings(commands)
+	return commands
 }

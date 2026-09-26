@@ -2,13 +2,16 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/skills"
+	"github.com/shaktsin/umcode/internal/identity"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/skills"
 )
 
 type handler func(ctx context.Context, c *conn, params json.RawMessage) (any, error)
@@ -112,6 +115,9 @@ func (s *Server) routes() map[string]handler {
 		protocol.MethodThreadSetSettings: bind(func(ctx context.Context, c *conn, p protocol.ThreadSetSettingsParams) (any, error) {
 			return e.SetThreadSettings(ctx, p)
 		}),
+		protocol.MethodThreadCompact: bind(func(ctx context.Context, c *conn, p protocol.ThreadIDParams) (any, error) {
+			return okResult{true}, e.CompactThread(ctx, p.ThreadID)
+		}),
 
 		// projects
 		protocol.MethodProjectList: bind(func(ctx context.Context, c *conn, p protocol.ProjectListParams) (any, error) {
@@ -136,17 +142,32 @@ func (s *Server) routes() map[string]handler {
 		protocol.MethodProjectInstructions: bind(func(ctx context.Context, c *conn, p protocol.ProjectInstructionsParams) (any, error) {
 			return e.ProjectInstructions(ctx, p)
 		}),
+		protocol.MethodProjectScanInstructions: bind(func(ctx context.Context, c *conn, p protocol.ProjectIDParams) (any, error) {
+			return e.ScanProjectInstructions(ctx, p)
+		}),
 		protocol.MethodProjectFiles: bind(func(ctx context.Context, c *conn, p protocol.ProjectFilesParams) (any, error) {
 			return e.ProjectFiles(ctx, p)
 		}),
 		protocol.MethodProjectReadFile: bind(func(ctx context.Context, c *conn, p protocol.ProjectReadFileParams) (any, error) {
 			return e.ProjectReadFile(ctx, p)
 		}),
+		protocol.MethodProjectReadArtifact: bind(func(ctx context.Context, c *conn, p protocol.ProjectReadArtifactParams) (any, error) {
+			if !c.IsAdmin() {
+				return nil, protocol.Errorf(protocol.CodeInvalidRequest, "only app clients can read browser artifacts")
+			}
+			return e.ProjectReadArtifact(ctx, p)
+		}),
 		protocol.MethodProjectDiff: bind(func(ctx context.Context, c *conn, p protocol.ProjectDiffParams) (any, error) {
 			return e.ProjectDiff(ctx, p)
 		}),
 		protocol.MethodProjectRevertTurn: bind(func(ctx context.Context, c *conn, p protocol.ProjectRevertTurnParams) (any, error) {
 			return e.RevertTurn(ctx, p)
+		}),
+		protocol.MethodProjectKeepTask: bind(func(ctx context.Context, c *conn, p protocol.TaskWorkspaceParams) (any, error) {
+			return e.KeepTaskChanges(ctx, p)
+		}),
+		protocol.MethodProjectDiscardTask: bind(func(ctx context.Context, c *conn, p protocol.TaskWorkspaceParams) (any, error) {
+			return e.DiscardTaskWorkspace(ctx, p)
 		}),
 
 		// turns
@@ -157,6 +178,18 @@ func (s *Server) routes() map[string]handler {
 		}),
 		protocol.MethodTurnInterrupt: bind(func(ctx context.Context, c *conn, p protocol.TurnInterruptParams) (any, error) {
 			return okResult{true}, e.InterruptTurn(p.TurnID)
+		}),
+		protocol.MethodPreviewList: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
+			if !c.IsAdmin() {
+				return nil, protocol.Errorf(protocol.CodeInvalidRequest, "only app clients can list live previews")
+			}
+			return protocol.PreviewListResult{Previews: e.Previews.List()}, nil
+		}),
+		protocol.MethodPreviewStop: bind(func(ctx context.Context, c *conn, p protocol.PreviewStopParams) (any, error) {
+			if !c.IsAdmin() {
+				return nil, protocol.Errorf(protocol.CodeInvalidRequest, "only app clients can stop live previews")
+			}
+			return okResult{true}, e.Previews.Stop(p.PreviewID)
 		}),
 
 		// approvals
@@ -181,6 +214,74 @@ func (s *Server) routes() map[string]handler {
 		}),
 		protocol.MethodIdentityList: bind(func(ctx context.Context, c *conn, _ empty) (any, error) {
 			return protocol.IdentityListResult{Identities: e.ProviderIdentities(ctx)}, nil
+		}),
+		protocol.MethodIdentityConsoleStart: bind(func(ctx context.Context, c *conn, p struct {
+			Provider string `json:"provider"`
+			SignIn   bool   `json:"signIn"`
+		}) (any, error) {
+			if !c.IsAdmin() {
+				return nil, protocol.Errorf(protocol.CodeInvalidRequest, "only app clients can start provider sign-in")
+			}
+			proc, err := identity.StartConsole(p.Provider, p.SignIn)
+			if err != nil {
+				return nil, protocol.Errorf(protocol.CodeInvalidParams, "%v", err)
+			}
+			var b [16]byte
+			if _, err := rand.Read(b[:]); err != nil {
+				_ = proc.Close()
+				return nil, err
+			}
+			sessionID := hex.EncodeToString(b[:])
+			s.consoleMu.Lock()
+			s.consoles[sessionID] = ownedConsole{owner: c.ID(), process: proc}
+			s.consoleMu.Unlock()
+			go func() {
+				buf := make([]byte, 1024)
+				for {
+					n, readErr := proc.Output().Read(buf)
+					if n > 0 {
+						c.Notify(protocol.NotifyIdentityConsoleOutput, map[string]string{"sessionId": sessionID, "text": string(buf[:n])})
+					}
+					if readErr != nil {
+						break
+					}
+				}
+				waitErr := proc.Wait()
+				s.consoleMu.Lock()
+				delete(s.consoles, sessionID)
+				s.consoleMu.Unlock()
+				status := "completed"
+				if waitErr != nil {
+					status = "failed"
+				}
+				c.Notify(protocol.NotifyIdentityConsoleDone, map[string]string{"sessionId": sessionID, "status": status})
+			}()
+			return map[string]string{"sessionId": sessionID}, nil
+		}),
+		protocol.MethodIdentityConsoleInput: bind(func(ctx context.Context, c *conn, p struct {
+			SessionID string `json:"sessionId"`
+			Data      string `json:"data"`
+		}) (any, error) {
+			if len(p.Data) > 64<<10 {
+				return nil, protocol.Errorf(protocol.CodeInvalidParams, "terminal input exceeds 64 KiB")
+			}
+			proc, err := s.ownedConsole(c, p.SessionID)
+			if err != nil {
+				return nil, err
+			}
+			if err := proc.Write(p.Data); err != nil {
+				return nil, protocol.Errorf(protocol.CodeInternal, "write to provider terminal: %v", err)
+			}
+			return okResult{true}, nil
+		}),
+		protocol.MethodIdentityConsoleStop: bind(func(ctx context.Context, c *conn, p struct {
+			SessionID string `json:"sessionId"`
+		}) (any, error) {
+			proc, err := s.ownedConsole(c, p.SessionID)
+			if err != nil {
+				return nil, err
+			}
+			return okResult{true}, proc.Close()
 		}),
 		protocol.MethodModelList: bind(func(ctx context.Context, c *conn, p protocol.ModelListParams) (any, error) {
 			ms, err := e.Catalog.List(ctx, p.Provider, p.IncludeHidden)

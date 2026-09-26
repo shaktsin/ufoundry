@@ -1,13 +1,13 @@
-# UFoundry Skill Template
+# UMCode Skill Template
 
-This is a template for creating UFoundry skills. It demonstrates both Python and Bash scripts with proper input/output handling.
+This is a template for creating UMCode skills. It demonstrates both Python and Bash scripts with proper input/output handling.
 
 ## Quick Start
 
 ### 1. Clone this template
 
 ```bash
-git clone https://github.com/yourusername/ufoundry-skill-example.git my-skill
+git clone https://github.com/yourusername/umcode-skill-example.git my-skill
 cd my-skill
 ```
 

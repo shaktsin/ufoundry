@@ -12,7 +12,7 @@
     { id: 'auto', label: 'Auto', hint: 'Pick per message' },
     { id: 'quick', label: 'Quick', hint: 'Fast, little or no thinking' },
     { id: 'standard', label: 'Standard', hint: 'Balanced' },
-    { id: 'deep', label: 'Deep', hint: 'More thinking and tool steps' },
+    { id: 'deep', label: 'Deep', hint: 'More thinking for complex work' },
   ];
   const defaultComplexity = $derived(app.complexity?.default || 'auto');
   const providerNames: Record<string, string> = {
@@ -161,7 +161,7 @@
           </div>
         {/each}
         {#if configuredByProvider.length === 0}<p class="px-2 py-3 text-xs text-muted">Add models in Settings → Models to choose them here.</p>{/if}
-        {#if selected.length > 1}<p class="px-2 pt-2 text-[10px] text-muted">{selected.length} selected · ufoundry will try them in pool order if a quota is reached.</p>{/if}
+        {#if selected.length > 1}<p class="px-2 pt-2 text-[10px] text-muted">{selected.length} selected · UMCode will try them in pool order if a quota is reached.</p>{/if}
       </div>
     {/if}
   </div>

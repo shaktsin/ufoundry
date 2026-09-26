@@ -1,4 +1,4 @@
-"""Modern CLI entry point for UFoundry."""
+"""Modern CLI entry point for UMCode."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="ufoundry",
         description="Self-hosted personal AI assistant",
-        epilog="For more help, visit: https://github.com/yourusername/ufoundry",
+        epilog="For more help, visit: https://github.com/shaktsin/umcode",
     )
 
     parser.add_argument("--config", dest="config", default=None, help="Path to config file")
@@ -49,10 +49,10 @@ def main() -> None:
     )
 
     # Daemon management commands
-    start_parser = subparsers.add_parser("start", help="Start UFoundry daemon")
+    start_parser = subparsers.add_parser("start", help="Start UMCode daemon")
     start_parser.add_argument("--config", dest="config", default=None, help="Path to config file")
     start_parser.add_argument("--log-level", dest="log_level", default=None, help="Logging level")
-    stop_parser = subparsers.add_parser("stop", help="Stop UFoundry daemon")
+    stop_parser = subparsers.add_parser("stop", help="Stop UMCode daemon")
     stop_parser.add_argument("--config", dest="config", default=None, help="Path to config file")
     stop_parser.add_argument("--log-level", dest="log_level", default=None, help="Logging level")
     status_parser = subparsers.add_parser("status", help="Show daemon status")

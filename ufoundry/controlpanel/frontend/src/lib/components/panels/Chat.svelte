@@ -74,7 +74,7 @@
             <div>
               <p class="text-base font-medium text-zinc-300">Start a conversation</p>
               <p class="text-sm text-zinc-600 mt-1">
-                {online ? 'Send a message to UFoundry' : 'Gateway offline — start the gateway to chat'}
+                {online ? 'Send a message to UMCode' : 'Gateway offline — start the gateway to chat'}
               </p>
             </div>
           </div>

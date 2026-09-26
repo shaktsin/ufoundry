@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 // maxUndoBytes is the largest previous version kept for an undo.
@@ -153,6 +153,12 @@ func (s *Service) Diff(ctx context.Context, p protocol.Project, params protocol.
 // RevertTurn restores the files a turn changed to the content it found. Files
 // whose previous version was too large to keep are skipped.
 func (s *Service) RevertTurn(ctx context.Context, turnID string, paths []string) (protocol.ProjectRevertTurnResult, error) {
+	return s.RevertTurnAt(ctx, turnID, paths, nil)
+}
+
+// RevertTurnAt is RevertTurn with an optional project-root override. Task
+// workspaces use this to ensure an undo never writes to the source checkout.
+func (s *Service) RevertTurnAt(ctx context.Context, turnID string, paths []string, roots map[string]string) (protocol.ProjectRevertTurnResult, error) {
 	var res protocol.ProjectRevertTurnResult
 	changes, err := s.st.ListFileChanges(ctx, "", turnID, "", 500)
 	if err != nil {
@@ -184,7 +190,11 @@ func (s *Service) RevertTurn(ctx context.Context, turnID string, paths []string)
 			}
 			projects[c.ProjectID] = p
 		}
-		abs, err := Resolve(p.Root, path)
+		root := p.Root
+		if taskRoot := roots[c.ProjectID]; taskRoot != "" {
+			root = taskRoot
+		}
+		abs, err := Resolve(root, path)
 		if err != nil {
 			res.Skipped = append(res.Skipped, path)
 			continue

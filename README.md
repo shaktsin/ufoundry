@@ -1,10 +1,10 @@
-# UFoundry
+# UMCode
 
 A modular, multi-agent AI assistant with pluggable skills, mcps and multi-channel support.
 
 Tell it to manage your calendar, run scripts, browse the web, or handle anything you'd otherwise do manually. It asks for your approval before doing anything risky, and you can extend it with skills.
 
-![Demo](media/ufoundry-demo.gif)
+![Demo](media/umcode-demo.gif)
 
 ---
 
@@ -20,15 +20,15 @@ Tell it to manage your calendar, run scripts, browse the web, or handle anything
 
 ---
 
-> **Go engine (preview).** UFoundry is moving to a single Go binary plus a native macOS app. The new engine already handles chat history, provider/model/complexity selection, API keys in the Keychain and token usage per key: `make go-build && ./bin/ufoundry engine`. See [GO_ENGINE.md](GO_ENGINE.md). The Python app below remains the full-featured version during the migration.
+> **Go engine (preview).** UMCode is moving to a single Go binary plus a native macOS app. The new engine already handles chat history, provider/model/complexity selection, API keys in the Keychain, token usage per key, and first-party web search/page reading: `make go-build && ./bin/ufoundry engine`. See [GO_ENGINE.md](GO_ENGINE.md). The Python app below remains the full-featured version during the migration.
 
 ## Quick Start
 
 **Requirements:** Python 3.11+, a Telegram bot token (from [@BotFather](https://t.me/BotFather)), and an API key for Claude, OpenAI, or Gemini.
 
 ```bash
-git clone https://github.com/shaktsin/ufoundry
-cd ufoundry
+git clone https://github.com/shaktsin/umcode
+cd umcode
 make install     # create venv, install deps
 make init        # interactive setup wizard
 make run         # start in foreground (Ctrl+C to stop)
@@ -195,7 +195,7 @@ Skills run in isolated subprocesses with their own virtualenv. They can only use
 
 ## Security
 
-UFoundry has a layered security model so you stay in control of what the bot does.
+UMCode has a layered security model so you stay in control of what the bot does.
 
 ### Tool risk tiers
 

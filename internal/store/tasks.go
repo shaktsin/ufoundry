@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // PyTime formats t the way the Python app stores task times

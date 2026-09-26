@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // Health is the router's memory of one key and model.

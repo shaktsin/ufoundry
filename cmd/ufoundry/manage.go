@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // ---- threads ----
@@ -76,7 +76,7 @@ func runThread(args []string) error {
 			case protocol.ItemUserMessage:
 				fmt.Printf("%sYou:%s %s\n\n", bold, reset, it.Text)
 			case protocol.ItemAgentMessage:
-				fmt.Printf("%sUFoundry:%s %s\n\n", bold, reset, it.Text)
+				fmt.Printf("%sUMCode:%s %s\n\n", bold, reset, it.Text)
 			case protocol.ItemToolCall:
 				fmt.Printf("%s→ %s %s (%s)%s\n", dim, it.Tool.Name, compactJSON(it.Tool.Args), it.Status, reset)
 			case protocol.ItemFileChange:

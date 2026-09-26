@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/tools"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/tools"
 )
 
 const weatherSkill = `---

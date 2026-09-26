@@ -206,7 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# UFoundry local/runtime secrets and state
+# UMCode local/runtime secrets and state
 config.yaml
 *.session
 wa_session/
@@ -214,6 +214,9 @@ wa_session/
 *.db-*
 *.pid
 config.example.yaml.bak
+.DS_Store
+.codemem/
+ufoundry-*.bundle
 /skills/
 /agent_teams/
 

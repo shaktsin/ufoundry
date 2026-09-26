@@ -1,4 +1,4 @@
-"""Shared data models for UFoundry."""
+"""Shared data models for UMCode."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class IncomingMessage:
     """Message received from any connector/channel.
 
-    This model is used throughout UFoundry to represent incoming messages
+    This model is used throughout UMCode to represent incoming messages
     from various platforms (Telegram, Discord, WhatsApp, etc.).
     """
     channel: str  # Platform type (telegram, discord, whatsapp, gmail)

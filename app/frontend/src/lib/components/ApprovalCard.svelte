@@ -1,24 +1,35 @@
 <script lang="ts">
   import { app } from '$lib/stores/app.svelte';
-  import { projects } from '$lib/stores/projects.svelte';
   import type { Approval } from '$lib/types';
+  import { prettyJSON } from '$lib/format';
 
-  let { approval, compact = false }: { approval: Approval; compact?: boolean } = $props();
-  let remember = $state(false);
+  let { approval, compact = false, chatContext = false, projectName }: {
+    approval: Approval; compact?: boolean; chatContext?: boolean; projectName?: string;
+  } = $props();
+  let showDetails = $state(false);
 
-  const canRemember = $derived(!!projects.active);
+  const canRemember = $derived(Boolean(projectName));
+  const rememberLabel = $derived(projectName || 'this project');
+  const rememberAction = $derived(approval.tool === 'shell.run' ? 'command' : 'action');
 </script>
 
-<div class="px-3 py-2 {compact ? 'border-t border-clay/30' : ''} bg-clay-soft/20 flex flex-wrap items-center gap-2">
-  <span class="text-amber-warm flex-1 min-w-40 selectable">
-    {approval.actionSummary || `Run ${approval.tool}`}{approval.reason ? ` - ${approval.reason}` : ''}
-  </span>
-  {#if canRemember}
-    <label class="flex items-center gap-1.5 text-[11px] text-muted" title="Answer the same way next time in this project">
-      <input type="checkbox" bind:checked={remember} />
-      always in {projects.active?.name}
-    </label>
+<div class="{chatContext ? '' : `px-3 py-2 ${compact ? 'border-t border-clay/30' : ''} bg-clay-soft/20`} flex flex-wrap items-center gap-2">
+  <div class="flex-1 min-w-48">
+    <div class="text-amber-warm text-sm font-medium selectable">{approval.actionSummary || `Run ${approval.tool}`}</div>
+    {#if approval.reason}<div class="text-xs text-muted mt-0.5 selectable">{approval.reason}</div>{/if}
+    <div class="text-[11px] text-muted mt-1">{approval.tool} · request expires {new Date(approval.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
+  </div>
+  {#if chatContext}
+    <button class="btn-ghost btn-sm" aria-expanded={showDetails} onclick={() => (showDetails = !showDetails)}>{showDetails ? 'Hide details' : 'Review details'}</button>
   {/if}
-  <button class="btn-outline btn-sm" onclick={() => app.respondApproval(approval.id, false, remember)}>Deny</button>
-  <button class="btn-primary btn-sm" onclick={() => app.respondApproval(approval.id, true, remember)}>Approve</button>
+  <div class="w-full flex justify-end gap-2">
+    <button class="btn-outline btn-sm" onclick={() => app.respondApproval(approval.id, false)}>Deny</button>
+    {#if canRemember}
+      <button class="btn-outline btn-sm" title={`Always allow this exact ${rememberAction} in ${rememberLabel}`} onclick={() => app.respondApproval(approval.id, true, true)}>Always allow here</button>
+    {/if}
+    <button class="btn-primary btn-sm" onclick={() => app.respondApproval(approval.id, true)}>Allow once</button>
+  </div>
+  {#if chatContext && showDetails}
+    <pre class="w-full max-h-56 overflow-auto rounded-lg border border-line bg-paper p-2 font-mono text-[11px] whitespace-pre-wrap break-all selectable">{prettyJSON(approval.args)}</pre>
+  {/if}
 </div>

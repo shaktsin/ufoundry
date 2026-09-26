@@ -1,4 +1,4 @@
-# UFoundry Configuration Example
+# UMCode Configuration Example
 # All fields shown with defaults and inline comments.
 # Copy to ~/.ufoundry/config.yaml and fill in your values.
 # Secrets (api_key, tokens, client_secret) are stored in macOS Keychain or
@@ -88,7 +88,7 @@ connectors:
   # Gmail IMAP connector — proactive email notifications via IMAP IDLE (no GCP required).
   # One-time setup:
   #   1. Enable IMAP in Gmail settings → Forwarding and POP/IMAP → Enable IMAP
-  #   2. Authorise Google in UFoundry (run make init → Integrations → Google Workspace)
+  #   2. Authorise Google in UMCode (run make init → Integrations → Google Workspace)
   # - name: gmail_imap
   #   type: gmail_imap
   #   mailbox: INBOX              # IMAP mailbox to watch (default: INBOX)

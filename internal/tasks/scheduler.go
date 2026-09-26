@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
-	"github.com/shaktsin/ufoundry/internal/tools"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
+	"github.com/shaktsin/umcode/internal/tools"
 )
 
 // RunFunc executes a task as a turn and returns the turn id and final text.
@@ -212,7 +212,7 @@ type createTool struct{ s *Service }
 
 func (*createTool) Name() string { return "task.create" }
 func (*createTool) Description() string {
-	return "Schedule a task: a prompt UFoundry runs later, once (task_type one_time with run_at) or repeatedly (periodic: hourly with minute, daily/weekly with time HH:MM and day_of_week, or cron). Times are in the given IANA timezone, default the user's local zone."
+	return "Schedule a task: a prompt UMCode runs later, once (task_type one_time with run_at) or repeatedly (periodic: hourly with minute, daily/weekly with time HH:MM and day_of_week, or cron). Times are in the given IANA timezone, default the user's local zone."
 }
 func (*createTool) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{

@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/llm"
-	"github.com/shaktsin/ufoundry/internal/secrets"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/llm"
+	"github.com/shaktsin/umcode/internal/secrets"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 func TestImportLegacyKeys(t *testing.T) {

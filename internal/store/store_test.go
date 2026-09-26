@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 func TestLegacyBackfill(t *testing.T) {

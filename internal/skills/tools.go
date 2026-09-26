@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/tools"
+	"github.com/shaktsin/umcode/internal/tools"
 )
 
 // Register adds skill.get_instructions and skill.run_script to the tool registry.

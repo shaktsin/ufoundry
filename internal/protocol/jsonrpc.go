@@ -1,4 +1,4 @@
-// Package protocol defines the UFoundry engine protocol: JSON-RPC 2.0 messages
+// Package protocol defines the UMCode engine protocol: JSON-RPC 2.0 messages
 // exchanged one per line (Unix socket) or one per frame (WebSocket).
 //
 // The engine streams items inside turns inside threads. See docs/protocol.md.

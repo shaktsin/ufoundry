@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=UMCode
+Comment=Your personal AI agent
+Exec=@APP_LAUNCHER@
+Icon=@ICON_PATH@
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true

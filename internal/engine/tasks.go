@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 // runTask executes a scheduled task as a turn in the task's own thread and

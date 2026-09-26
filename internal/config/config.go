@@ -34,7 +34,7 @@ type Config struct {
 
 	// Path is where the config was loaded from ("" if defaults only).
 	Path string `yaml:"-"`
-	// Home is the resolved UFoundry home directory.
+	// Home is the resolved UMCode home directory.
 	Home string `yaml:"-"`
 }
 
@@ -123,6 +123,7 @@ type RuntimeConfig struct {
 type ModelsConfig struct {
 	DefaultComplexity string                      `yaml:"default_complexity"`
 	Complexity        map[string]ComplexityPreset `yaml:"complexity"`
+	ExecutionLimits   ExecutionLimits             `yaml:"execution_limits"`
 	// Roles overrides the model per role: title, intent, orchestrator, worker.
 	Roles map[string]AgentModelConfig `yaml:"roles"`
 	// Configured is the user-approved model list shown in the app.
@@ -130,6 +131,14 @@ type ModelsConfig struct {
 	// Pools are ordered groups used for automatic cross-provider fallback.
 	Pools       []ModelPool `yaml:"pools"`
 	DefaultPool string      `yaml:"default_pool"`
+}
+
+// ExecutionLimits bound a whole agent turn independently from reasoning level.
+type ExecutionLimits struct {
+	MaxDurationMinutes int     `yaml:"max_duration_minutes"`
+	MaxTokens          int64   `yaml:"max_tokens"`
+	MaxCostUSD         float64 `yaml:"max_cost_usd"`
+	MaxToolRounds      int     `yaml:"max_tool_rounds"`
 }
 
 type ConfiguredModel struct {
@@ -154,7 +163,7 @@ func (p ModelPool) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
 
 type ComplexityPreset struct {
 	Reasoning       string `yaml:"reasoning"`
-	MaxToolSteps    int    `yaml:"max_tool_steps"`
+	MaxToolSteps    int    `yaml:"max_tool_steps"` // deprecated; use models.execution_limits.max_tool_rounds
 	MultiAgent      string `yaml:"multi_agent"`
 	MaxOutputTokens int    `yaml:"max_output_tokens"`
 }
@@ -195,7 +204,7 @@ type MCPServerConfig struct {
 // IsEnabled defaults to true when unset.
 func (m MCPServerConfig) IsEnabled() bool { return m.Enabled == nil || *m.Enabled }
 
-// HomeDir returns the UFoundry home: $UFOUNDRY_HOME, else ~/.ufoundry.
+// HomeDir returns the UMCode home: $UFOUNDRY_HOME, else ~/.ufoundry.
 // If only the pre-rename ~/.umabot exists it is moved to ~/.ufoundry.
 func HomeDir() (string, error) {
 	if h := os.Getenv("UFOUNDRY_HOME"); h != "" {
@@ -295,7 +304,9 @@ func Default(home string) *Config {
 			ApprovalMode:           "normal",
 			ApprovalTimeoutMinutes: 30,
 		},
-		Models: ModelsConfig{DefaultComplexity: "auto"},
+		Models: ModelsConfig{DefaultComplexity: "auto", ExecutionLimits: ExecutionLimits{
+			MaxDurationMinutes: 120, MaxTokens: 1_000_000, MaxCostUSD: 10, MaxToolRounds: 200,
+		}},
 	}
 }
 
@@ -325,6 +336,18 @@ func (c *Config) finalize() {
 	if c.Models.DefaultComplexity == "" {
 		c.Models.DefaultComplexity = "auto"
 	}
+	if c.Models.ExecutionLimits.MaxDurationMinutes == 0 {
+		c.Models.ExecutionLimits.MaxDurationMinutes = 120
+	}
+	if c.Models.ExecutionLimits.MaxTokens == 0 {
+		c.Models.ExecutionLimits.MaxTokens = 1_000_000
+	}
+	if c.Models.ExecutionLimits.MaxCostUSD == 0 {
+		c.Models.ExecutionLimits.MaxCostUSD = 10
+	}
+	if c.Models.ExecutionLimits.MaxToolRounds == 0 {
+		c.Models.ExecutionLimits.MaxToolRounds = 200
+	}
 	c.LLM.Provider = NormalizeProvider(c.LLM.Provider)
 	for i := range c.Models.Configured {
 		c.Models.Configured[i].Provider = NormalizeProvider(c.Models.Configured[i].Provider)
@@ -344,6 +367,19 @@ func (c *Config) Validate() error {
 	case "auto", "quick", "standard", "deep":
 	default:
 		return fmt.Errorf("models.default_complexity: unknown value %q", c.Models.DefaultComplexity)
+	}
+	limits := c.Models.ExecutionLimits
+	if limits.MaxDurationMinutes < 1 || limits.MaxDurationMinutes > 480 {
+		return fmt.Errorf("models.execution_limits.max_duration_minutes must be 1–480")
+	}
+	if limits.MaxTokens < 10_000 || limits.MaxTokens > 10_000_000 {
+		return fmt.Errorf("models.execution_limits.max_tokens must be 10000–10000000")
+	}
+	if limits.MaxCostUSD < 0.01 || limits.MaxCostUSD > 10_000 {
+		return fmt.Errorf("models.execution_limits.max_cost_usd must be 0.01–10000")
+	}
+	if limits.MaxToolRounds < 1 || limits.MaxToolRounds > 1000 {
+		return fmt.Errorf("models.execution_limits.max_tool_rounds must be 1–1000")
 	}
 	seen := map[string]bool{}
 	modelIDs := map[string]bool{}

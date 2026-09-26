@@ -19,21 +19,27 @@ const (
 	MethodThreadSearch      = "thread/search"
 	MethodThreadExport      = "thread/export"
 	MethodThreadSetSettings = "thread/setSettings"
+	MethodThreadCompact     = "thread/compact"
 
 	MethodTurnStart     = "turn/start"
 	MethodTurnInterrupt = "turn/interrupt"
+	MethodPreviewList   = "preview/list"
+	MethodPreviewStop   = "preview/stop"
 
 	MethodApprovalList    = "approval/list"
 	MethodApprovalRespond = "approval/respond"
 
-	MethodProviderList   = "provider/list"
-	MethodIdentityList   = "identity/list"
-	MethodModelList      = "model/list"
-	MethodModelSetHidden = "model/setHidden"
-	MethodModelRefresh   = "model/refresh"
-	MethodModelSetPrice  = "model/setPrice"
-	MethodRoutingGet     = "routing/get"
-	MethodRoutingSet     = "routing/set"
+	MethodProviderList         = "provider/list"
+	MethodIdentityList         = "identity/list"
+	MethodIdentityConsoleStart = "identity/console/start"
+	MethodIdentityConsoleInput = "identity/console/input"
+	MethodIdentityConsoleStop  = "identity/console/stop"
+	MethodModelList            = "model/list"
+	MethodModelSetHidden       = "model/setHidden"
+	MethodModelRefresh         = "model/refresh"
+	MethodModelSetPrice        = "model/setPrice"
+	MethodRoutingGet           = "routing/get"
+	MethodRoutingSet           = "routing/set"
 
 	MethodCredentialList   = "credential/list"
 	MethodCredentialAdd    = "credential/add"
@@ -51,15 +57,20 @@ const (
 
 // Notification names (engine → client).
 const (
-	NotifyThreadUpdated    = "thread/updated"
-	NotifyTurnStarted      = "turn/started"
-	NotifyTurnCompleted    = "turn/completed"
-	NotifyItemStarted      = "item/started"
-	NotifyItemDelta        = "item/delta"
-	NotifyItemCompleted    = "item/completed"
-	NotifyApprovalRequest  = "approval/request"
-	NotifyApprovalResolved = "approval/resolved"
-	NotifyBudgetWarning    = "usage/budgetWarning"
+	NotifyThreadUpdated         = "thread/updated"
+	NotifyTurnStarted           = "turn/started"
+	NotifyTurnCompleted         = "turn/completed"
+	NotifyItemStarted           = "item/started"
+	NotifyItemDelta             = "item/delta"
+	NotifyItemCompleted         = "item/completed"
+	NotifyApprovalRequest       = "approval/request"
+	NotifyApprovalResolved      = "approval/resolved"
+	NotifyBudgetWarning         = "usage/budgetWarning"
+	NotifyIdentityConsoleOutput = "identity/console/output"
+	NotifyIdentityConsoleDone   = "identity/console/done"
+	NotifyPreviewStarted        = "preview/started"
+	NotifyPreviewOutput         = "preview/output"
+	NotifyPreviewStopped        = "preview/stopped"
 )
 
 // InitializeParams is sent first by every client.
@@ -81,6 +92,7 @@ type InitializeResult struct {
 // EngineStatus is returned by engine/status.
 type EngineStatus struct {
 	EngineVersion    string    `json:"engineVersion"`
+	BuildID          string    `json:"buildId,omitempty"`
 	ProtocolVersion  string    `json:"protocolVersion"`
 	StartedAt        time.Time `json:"startedAt"`
 	Clients          int       `json:"clients"`
@@ -97,8 +109,9 @@ type SubscribeParams struct {
 }
 
 type ThreadStartParams struct {
-	Title     string `json:"title,omitempty"`
-	ProjectID string `json:"projectId,omitempty"`
+	Title         string `json:"title,omitempty"`
+	ProjectID     string `json:"projectId,omitempty"`
+	WorkspaceMode string `json:"workspaceMode,omitempty"`
 	// ParentThreadID marks this chat as a side chat of another one: same
 	// project, its own turns, shown beside its parent.
 	ParentThreadID string         `json:"parentThreadId,omitempty"`
@@ -121,6 +134,30 @@ type ThreadListResult struct {
 
 type ThreadIDParams struct {
 	ThreadID string `json:"threadId"`
+}
+
+type PreviewStopParams struct {
+	PreviewID string `json:"previewId"`
+}
+
+type PreviewSession struct {
+	ID        string `json:"id"`
+	ThreadID  string `json:"threadId"`
+	ProjectID string `json:"projectId"`
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Status    string `json:"status"`
+	Output    string `json:"output,omitempty"`
+}
+
+type PreviewListResult struct {
+	Previews []PreviewSession `json:"previews"`
+}
+
+type PreviewEvent struct {
+	Preview PreviewSession `json:"preview"`
+	Output  string         `json:"output,omitempty"`
+	Error   string         `json:"error,omitempty"`
 }
 
 type ThreadReadResult struct {
@@ -308,6 +345,7 @@ type BudgetWarning struct {
 type ComplexityDefaults struct {
 	Default Complexity         `json:"default"`
 	Presets []ComplexityPreset `json:"presets"`
+	Limits  ExecutionLimits    `json:"limits"`
 }
 
 // ItemDelta is streamed while an item is in progress.

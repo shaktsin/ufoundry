@@ -1,9 +1,9 @@
-module github.com/shaktsin/ufoundry/app
+module github.com/shaktsin/umcode/app
 
 go 1.25.0
 
 require (
-	github.com/shaktsin/ufoundry v0.0.0
+	github.com/shaktsin/umcode v0.0.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.23
 )
 
@@ -15,7 +15,7 @@ require (
 	golang.org/x/sys v0.46.0 // indirect
 )
 
-replace github.com/shaktsin/ufoundry => ../
+replace github.com/shaktsin/umcode => ../
 
 replace golang.org/x/sys => github.com/golang/sys v0.46.0
 

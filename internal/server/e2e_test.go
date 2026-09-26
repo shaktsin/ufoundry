@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,14 +16,14 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/shaktsin/ufoundry/internal/client"
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/engine"
-	"github.com/shaktsin/ufoundry/internal/llm"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/secrets"
-	"github.com/shaktsin/ufoundry/internal/server"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/client"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/engine"
+	"github.com/shaktsin/umcode/internal/llm"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/secrets"
+	"github.com/shaktsin/umcode/internal/server"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 // fakeProvider replays scripted responses. Each call pops the next script.
@@ -156,9 +157,19 @@ func newHarness(t *testing.T, mutate func(*config.Config)) *harness {
 	}
 	t.Cleanup(func() { c.Close() })
 	h := &harness{t: t, fake: fake, eng: eng, c: c, ctx: ctx, ws: wsDir}
-	// Chats work inside a project: the workspace folder is the sandbox.
+	// Chats work inside a project folder by default; isolated worktrees are opt-in.
 	if err := os.MkdirAll(h.ws, 0o755); err != nil {
 		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.name", "UMCode Test"},
+		{"config", "user.email", "test@ufoundry.invalid"},
+		{"commit", "--allow-empty", "-m", "test project baseline"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", h.ws}, args...)...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+		}
 	}
 	h.call(protocol.MethodProjectCreate, protocol.ProjectCreateParams{Root: h.ws, Name: "demo",
 		Tools: protocol.ProjectTools{Shell: boolPtr(true)}}, &h.proj)
@@ -232,6 +243,8 @@ func (h *harness) addKey(provider, label, secret string) protocol.Credential {
 
 func TestChatWithApprovedShellTool(t *testing.T) {
 	h := newHarness(t, nil)
+	h.call(protocol.MethodProjectUpdate, protocol.ProjectUpdateParams{ProjectID: h.proj.ID,
+		Tools: &protocol.ProjectTools{Shell: boolPtr(true), Network: boolPtr(true)}}, &h.proj)
 	key := h.addKey("claude", "personal", "sk-test-abcd1234")
 	if key.Last4 != "1234" || !key.IsDefault {
 		t.Fatalf("key = %+v", key)
@@ -335,8 +348,50 @@ func TestDeniedToolAndHistory(t *testing.T) {
 	h.fake.mu.Lock()
 	req := h.fake.calls[len(h.fake.calls)-1]
 	h.fake.mu.Unlock()
-	if req.Messages[0].JoinedText() != "delete it" || req.Reasoning != "" {
+	if req.Messages[0].JoinedText() != "delete it" || req.Reasoning != llm.ReasoningOff {
 		t.Fatalf("history/reasoning: %+v", req)
+	}
+}
+
+func TestAgentFixLoop(t *testing.T) {
+	h := newHarness(t, nil)
+	h.call(protocol.MethodProjectUpdate, protocol.ProjectUpdateParams{ProjectID: h.proj.ID,
+		Tools: &protocol.ProjectTools{Shell: boolPtr(true), Network: boolPtr(true)}}, &h.proj)
+	h.addKey("claude", "verification", "sk-verify")
+	h.fake.push(
+		toolReply("verification__plan", `{}`),
+		toolReply("file__write", `{"path":"result.txt","content":"broken\n"}`),
+		toolReply("verification__run", `{"checks":[{"label":"content test","command":"test \"$(cat result.txt)\" = fixed","reason":"Confirm the generated result is correct."}]}`),
+		toolReply("file__write", `{"path":"result.txt","content":"fixed\n"}`),
+		toolReply("verification__run", `{"checks":[{"label":"content test","command":"test \"$(cat result.txt)\" = fixed","reason":"Rerun the failed check after the fix."}]}`),
+		textReply("Fixed the failure and reran the check successfully."),
+	)
+	var th protocol.Thread
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "verification loop"}, &th)
+	var started protocol.TurnStartResult
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "make result.txt correct and verify it"}, &started)
+	turn, text, items := h.waitTurn(started.Turn.ID, func(protocol.Approval) bool { return true })
+	if turn.Status != protocol.TurnCompleted || !strings.Contains(text, "reran the check successfully") {
+		t.Fatalf("turn=%+v text=%q", turn, text)
+	}
+	var statuses []string
+	for _, item := range items {
+		if item.Tool != nil && item.Tool.Name == "verification.run" {
+			var result struct {
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal([]byte(item.Tool.Output), &result); err != nil {
+				t.Fatal(err)
+			}
+			statuses = append(statuses, result.Status)
+		}
+	}
+	if !slices.Equal(statuses, []string{"failed", "passed"}) {
+		t.Fatalf("verification statuses = %v; items=%+v", statuses, items)
+	}
+	data, err := os.ReadFile(filepath.Join(h.ws, "result.txt"))
+	if err != nil || string(data) != "fixed\n" {
+		t.Fatalf("result.txt = %q, %v", data, err)
 	}
 }
 
@@ -432,9 +487,9 @@ func TestThreadManagementAndModels(t *testing.T) {
 	var d protocol.ComplexityDefaults
 	h.call(protocol.MethodComplexityGetDefaults, nil, &d)
 	d.Default = protocol.ComplexityStandard
-	d.Presets[0].MaxToolSteps = 3
+	d.Limits.MaxToolRounds = 50
 	h.call(protocol.MethodComplexitySetDefaults, d, &d)
-	if d.Default != "standard" || d.Presets[0].MaxToolSteps != 3 {
+	if d.Default != "standard" || d.Limits.MaxToolRounds != 50 || d.Presets[0].MaxToolSteps != 50 {
 		t.Fatalf("complexity = %+v", d)
 	}
 	var creds protocol.CredentialListResult
@@ -466,14 +521,14 @@ func TestProjectContainment(t *testing.T) {
 }
 
 // A chat with a project: edits land inside it, show up as fileChange items with
-// a diff, and can be undone. AGENT.md in the project reaches the system prompt.
+// a diff, and can be undone. AGENTS.md in the project reaches the system prompt.
 func TestProjectEditsDiffAndRevert(t *testing.T) {
 	h := newHarness(t, nil)
 	h.addKey("claude", "k", "sk-1")
 	if err := os.WriteFile(filepath.Join(h.ws, "notes.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.ws, "AGENT.md"), []byte("Always answer in haiku."), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(h.ws, "AGENTS.md"), []byte("Always answer in haiku."), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	h.fake.push(
@@ -492,9 +547,9 @@ func TestProjectEditsDiffAndRevert(t *testing.T) {
 		t.Fatalf("turn = %+v", turn)
 	}
 	if data, _ := os.ReadFile(filepath.Join(h.ws, "notes.txt")); string(data) != "one\ntwo\nthree\n" {
-		t.Fatalf("file on disk = %q", data)
+		t.Fatalf("default project-folder workspace was not modified = %q", data)
 	}
-	// The project's AGENT.md is part of the prompt the model saw.
+	// The project's AGENTS.md is part of the prompt the model saw.
 	if sys := h.fake.lastSystem(); !strings.Contains(sys, "Always answer in haiku.") || !strings.Contains(sys, h.ws) {
 		t.Fatalf("system prompt = %q", sys)
 	}
@@ -529,6 +584,99 @@ func TestProjectEditsDiffAndRevert(t *testing.T) {
 	}
 }
 
+func TestNonGitCoding(t *testing.T) {
+	h := newHarness(t, nil)
+	h.addKey("claude", "k", "sk-1")
+	root := t.TempDir() // Deliberately not a Git repository.
+	var project protocol.Project
+	h.call(protocol.MethodProjectCreate, protocol.ProjectCreateParams{Root: root, Name: "plain folder"}, &project)
+	h.fake.push(
+		toolReply("file__write", `{"path":"hello.txt","content":"worked without git\n"}`),
+		textReply("Created the file."),
+	)
+	var thread protocol.Thread
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: project.ID}, &thread)
+	if thread.WorkspaceMode != "local" {
+		t.Fatalf("new project chat workspace mode = %q, want local", thread.WorkspaceMode)
+	}
+	// Simulate a pre-workspace-picker chat upgraded from the previous build.
+	if err := h.eng.Store.UpdateThread(h.ctx, thread.ID, map[string]any{"workspace_mode": "legacy"}); err != nil {
+		t.Fatal(err)
+	}
+	var opened protocol.ThreadReadResult
+	h.call(protocol.MethodThreadRead, protocol.ThreadIDParams{ThreadID: thread.ID}, &opened)
+	if opened.Thread.WorkspaceMode != "local" {
+		t.Fatalf("legacy chat without a saved worktree resolved to %q, want local", opened.Thread.WorkspaceMode)
+	}
+	var started protocol.TurnStartResult
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: thread.ID, Text: "create hello.txt"}, &started)
+	turn, _, _ := h.waitTurn(started.Turn.ID, nil)
+	if turn.Status != protocol.TurnCompleted {
+		t.Fatalf("turn = %+v", turn)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "hello.txt"))
+	if err != nil || string(data) != "worked without git\n" {
+		t.Fatalf("file from non-Git coding task = %q, %v", data, err)
+	}
+}
+
+func TestKeepDropTask(t *testing.T) {
+	h := newHarness(t, nil)
+	h.addKey("claude", "k", "sk-1")
+	if err := os.WriteFile(filepath.Join(h.ws, "notes.txt"), []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.fake.push(
+		toolReply("file__write", `{"path":"notes.txt","content":"original\ntask edit\n"}`),
+		textReply("Updated the task copy."),
+	)
+	var th protocol.Thread
+	h.call(protocol.MethodThreadStart, protocol.ThreadStartParams{ProjectID: h.proj.ID, Title: "keep", WorkspaceMode: "worktree"}, &th)
+	var start protocol.TurnStartResult
+	h.call(protocol.MethodTurnStart, protocol.TurnStartParams{ThreadID: th.ID, Text: "edit notes"}, &start)
+	turn, _, _ := h.waitTurn(start.Turn.ID, nil)
+	if turn.Status != protocol.TurnCompleted {
+		t.Fatalf("turn = %+v", turn)
+	}
+	if err := h.eng.Store.UpdateThread(h.ctx, th.ID, map[string]any{"workspace_mode": "legacy"}); err != nil {
+		t.Fatal(err)
+	}
+	var file protocol.ProjectReadFileResult
+	h.call(protocol.MethodProjectReadFile, protocol.ProjectReadFileParams{ProjectID: h.proj.ID, ThreadID: th.ID, Path: "notes.txt"}, &file)
+	if file.Content != "original\ntask edit\n" {
+		t.Fatalf("task-scoped file read = %q", file.Content)
+	}
+	if saved, err := h.eng.Store.GetThread(h.ctx, th.ID); err != nil || saved.WorkspaceMode != "worktree" {
+		t.Fatalf("legacy chat with a saved worktree resolved to %+v, %v", saved, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(h.ws, "notes.txt")); string(data) != "original\n" {
+		t.Fatalf("task edit escaped into source before approval = %q", data)
+	}
+	var kept protocol.TaskWorkspaceResult
+	h.call(protocol.MethodProjectKeepTask, protocol.TaskWorkspaceParams{ThreadID: th.ID}, &kept)
+	if kept.ChangedFiles != 1 {
+		t.Fatalf("keep result = %+v", kept)
+	}
+	if data, _ := os.ReadFile(filepath.Join(h.ws, "notes.txt")); string(data) != "original\ntask edit\n" {
+		t.Fatalf("kept edit did not reach source = %q", data)
+	}
+	workspace, err := h.eng.Worktrees.Ensure(h.ctx, th.ID, h.ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace.Path, "unkept.txt"), []byte("discard me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var discarded protocol.TaskWorkspaceResult
+	h.call(protocol.MethodProjectDiscardTask, protocol.TaskWorkspaceParams{ThreadID: th.ID}, &discarded)
+	if _, err := os.Stat(workspace.Path); !os.IsNotExist(err) {
+		t.Fatalf("discard did not remove task workspace: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.ws, "unkept.txt")); !os.IsNotExist(err) {
+		t.Fatalf("discard copied unkept data into source: %v", err)
+	}
+}
+
 // Without a project a chat can read and answer, but not change anything.
 func TestChatWithoutProjectIsReadOnly(t *testing.T) {
 	h := newHarness(t, nil)
@@ -556,11 +704,11 @@ func TestProjectMethods(t *testing.T) {
 	var ins protocol.ProjectInstructionsResult
 	text := "Run the tests with `make test`."
 	h.call(protocol.MethodProjectInstructions, protocol.ProjectInstructionsParams{ProjectID: h.proj.ID, Content: &text}, &ins)
-	if ins.Path != filepath.Join(resolvedWS, "AGENT.md") || !strings.Contains(ins.Composed, "make test") {
+	if ins.Path != filepath.Join(resolvedWS, "UMCODE.md") || !strings.Contains(ins.Composed, "make test") {
 		t.Fatalf("instructions = %+v", ins)
 	}
 	// A repo written for Codex or Claude Code works unchanged.
-	os.Remove(filepath.Join(h.ws, "AGENT.md"))
+	os.Remove(filepath.Join(h.ws, "UMCODE.md"))
 	os.WriteFile(filepath.Join(h.ws, "CLAUDE.md"), []byte("Prefer small commits."), 0o644)
 	h.call(protocol.MethodProjectInstructions, protocol.ProjectInstructionsParams{ProjectID: h.proj.ID}, &ins)
 	if !strings.Contains(ins.Composed, "Prefer small commits.") {

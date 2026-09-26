@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/client"
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/client"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 const (

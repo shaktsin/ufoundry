@@ -17,7 +17,7 @@ Config (in config.yaml connectors list):
 
 Prerequisites:
   1. Enable IMAP in Gmail settings → Forwarding and POP/IMAP → Enable IMAP.
-  2. Authorise Google in UFoundry: run the google.authorize tool.
+  2. Authorise Google in UMCode: run the google.authorize tool.
   3. Add the connector to config.yaml and restart.
 """
 
@@ -428,7 +428,7 @@ class GmailImapConnector:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="UFoundry Gmail IMAP connector")
+    parser = argparse.ArgumentParser(description="UMCode Gmail IMAP connector")
     parser.add_argument("--connector", required=True, help="Connector name from config")
     parser.add_argument("--config", default=None)
     parser.add_argument("--log-level", default="INFO")

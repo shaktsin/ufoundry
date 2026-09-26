@@ -33,7 +33,7 @@ Please report security issues privately via:
 
 ### 🔒 Defense in Depth
 
-UFoundry implements multiple security layers:
+UMCode implements multiple security layers:
 
 1. **Risk-Based Tool Approval**
    - 🟢 GREEN: Auto-approved (read-only)
@@ -83,7 +83,7 @@ UFoundry implements multiple security layers:
 **✅ DO:**
 - Use environment variables for secrets in production
 - Review skill tool allowlists before installation
-- Keep UFoundry updated (`git pull && make upgrade`)
+- Keep UMCode updated (`git pull && make upgrade`)
 - Monitor logs for suspicious activity
 - Rotate API keys every 90 days
 - Use separate Telegram bot for control panel
@@ -93,7 +93,7 @@ UFoundry implements multiple security layers:
 - Share your control panel chat ID
 - Enable shell tool unless necessary
 - Grant broad tool allowlists to untrusted skills
-- Run UFoundry as root
+- Run UMCode as root
 
 ### Environment Variables
 
@@ -174,7 +174,7 @@ except (json.JSONDecodeError, AssertionError) as e:
 
 ### OWASP Top 10 (2021)
 
-| Risk | UFoundry Mitigation |
+| Risk | UMCode Mitigation |
 |------|-------------------|
 | A01 Broken Access Control | ✅ Control panel isolation, risk tiers |
 | A02 Cryptographic Failures | ✅ Keychain/env secrets, no plaintext |
