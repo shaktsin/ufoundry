@@ -117,7 +117,7 @@ func TestOpenAIStream(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer k" || r.URL.Path != "/chat/completions" {
 			t.Errorf("bad request %s", r.URL.Path)
 		}
-		if body["reasoning_effort"] != "medium" || body["max_completion_tokens"].(float64) != 1000 {
+		if body["reasoning_effort"] != "none" || body["max_completion_tokens"].(float64) != 1000 {
 			t.Errorf("body=%v", body)
 		}
 		msgs := body["messages"].([]any)
@@ -137,6 +137,38 @@ func TestOpenAIStream(t *testing.T) {
 	}
 	if done.Usage.InputTokens != 120 || done.Usage.CachedInputTokens != 100 || done.Usage.ReasoningTokens != 20 {
 		t.Fatalf("usage=%+v", done.Usage)
+	}
+}
+
+func TestOpenAIReasoningEffortWithTools(t *testing.T) {
+	req := testRequest()
+	openAI := (&OpenAI{}).buildRequest(req)
+	if openAI["reasoning_effort"] != "none" {
+		t.Fatalf("official OpenAI tool request effort = %v, want none", openAI["reasoning_effort"])
+	}
+
+	compatible := (&OpenAI{compatible: true}).buildRequest(req)
+	if compatible["reasoning_effort"] != "none" {
+		t.Fatalf("compatible API tool request effort = %v, want none", compatible["reasoning_effort"])
+	}
+
+	req.Tools = nil
+	noTools := (&OpenAI{}).buildRequest(req)
+	if noTools["reasoning_effort"] != ReasoningMedium {
+		t.Fatalf("OpenAI no-tools effort = %v, want medium", noTools["reasoning_effort"])
+	}
+
+	// Quick/Auto has reasoning explicitly off. It must still send "none" with
+	// tools rather than omit the field and let reasoning models use a default.
+	quickReq := testRequest()
+	quickReq.Reasoning = ReasoningOff
+	quick := (&OpenAI{}).buildRequest(quickReq)
+	if quick["reasoning_effort"] != "none" {
+		t.Fatalf("quick tool request effort = %v, want none", quick["reasoning_effort"])
+	}
+	compatibleQuick := (&OpenAI{compatible: true}).buildRequest(quickReq)
+	if compatibleQuick["reasoning_effort"] != "none" {
+		t.Fatalf("compatible quick tool request effort = %v, want none", compatibleQuick["reasoning_effort"])
 	}
 }
 

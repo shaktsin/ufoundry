@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 const projectCols = `id, name, root, instructions_path, provider, model, complexity, credential_id,
@@ -126,6 +126,14 @@ func (s *Store) UpdateProject(ctx context.Context, p protocol.ProjectUpdateParam
 	if p.Name != nil {
 		cur.Name = strings.TrimSpace(*p.Name)
 	}
+	if p.Root != nil {
+		if cur.Root != *p.Root {
+			cur.Root = *p.Root
+			// A custom instructions path belongs to the old folder. Let the new
+			// project root resolve its own instructions by default.
+			cur.InstructionsPath = ""
+		}
+	}
 	if p.Settings != nil {
 		cur.Settings = *p.Settings
 	}
@@ -142,9 +150,9 @@ func (s *Store) UpdateProject(ctx context.Context, p protocol.ProjectUpdateParam
 	if err != nil {
 		return cur, err
 	}
-	_, err = s.DB.ExecContext(ctx, `UPDATE projects SET name = ?, instructions_path = ?, provider = ?, model = ?,
+	_, err = s.DB.ExecContext(ctx, `UPDATE projects SET name = ?, root = ?, instructions_path = ?, provider = ?, model = ?,
 		complexity = ?, credential_id = ?, tools = ?, archived = ? WHERE id = ?`,
-		cur.Name, cur.InstructionsPath, cur.Settings.Provider, cur.Settings.Model,
+		cur.Name, cur.Root, cur.InstructionsPath, cur.Settings.Provider, cur.Settings.Model,
 		string(cur.Settings.Complexity), cur.Settings.CredentialID, string(tools), b2i(cur.Archived), cur.ID)
 	return cur, err
 }

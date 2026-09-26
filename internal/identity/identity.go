@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // List returns the managed model identities available on this machine.

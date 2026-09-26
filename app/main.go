@@ -1,6 +1,6 @@
-// Command UFoundry is the macOS app: a Wails v3 shell around the Svelte UI in
+// Command UMCode is the desktop app: a Wails v3 shell around the Svelte UI in
 // frontend/. The UI talks to the engine directly over the engine's WebSocket;
-// this shell starts the engine, puts UFoundry in the menu bar, and turns
+// this shell starts the engine, puts UMCode in the menu bar, and turns
 // approval requests into native notifications.
 package main
 
@@ -31,6 +31,9 @@ var trayIcon []byte
 // Version is set at build time with -ldflags "-X main.Version=…".
 var Version = "0.4.0-dev"
 
+// BuildID is shared with the bundled engine to detect stale background services.
+var BuildID = ""
+
 const bundleID = "com.ufoundry.app"
 
 func main() {
@@ -49,7 +52,7 @@ func main() {
 	shell := &Shell{Engine: eng, Log: logger}
 
 	app := application.New(application.Options{
-		Name:        "ufoundry",
+		Name:        "UMCode",
 		Description: "Your personal AI agent",
 		Logger:      logger,
 		Services:    []application.Service{application.NewService(notifier)},
@@ -60,7 +63,7 @@ func main() {
 		},
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,
-			// Closing the window leaves UFoundry in the menu bar.
+			// Closing the window leaves UMCode in the menu bar.
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 		SingleInstance: &application.SingleInstanceOptions{
@@ -75,7 +78,7 @@ func main() {
 
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
-		Title:            "ufoundry",
+		Title:            "UMCode",
 		Width:            1180,
 		Height:           780,
 		MinWidth:         760,

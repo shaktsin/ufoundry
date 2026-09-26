@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 func mustNext(t *testing.T, typ string, s protocol.Schedule, zone string, now time.Time, strict bool) time.Time {

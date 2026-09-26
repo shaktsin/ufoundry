@@ -102,7 +102,7 @@
           <ChatColumn view={chat.main} variant="main" />
         {:else}
           <main class="flex-1 overflow-y-auto">
-            <div class="max-w-5xl mx-auto px-6 py-6">
+            <div class="max-w-5xl mx-auto px-5 py-5">
               {#if app.view === 'approvals'}<Approvals />
               {:else if app.view === 'tasks'}<Tasks />
               {:else if app.view === 'extensions'}<Extensions />

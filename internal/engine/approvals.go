@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
-	"github.com/shaktsin/ufoundry/internal/tools"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
+	"github.com/shaktsin/umcode/internal/tools"
 )
 
 // ErrApprovalExpired is returned when nobody answered in time.
@@ -129,9 +129,9 @@ func (e *Engine) RespondApproval(ctx context.Context, id string, approve, rememb
 	return decided, nil
 }
 
-// ApprovalSignature identifies "the same action again" for a remembered
-// decision: the tool plus the part of its arguments a person would recognise —
-// the command's program and first argument, or the file path.
+// ApprovalSignature identifies the exact command or path a person approved.
+// In particular, shell approvals must not generalize from a broad prefix such
+// as "npm run" to unrelated scripts in the same project.
 func ApprovalSignature(tool string, args json.RawMessage) string {
 	var a struct {
 		Command string `json:"command"`
@@ -142,11 +142,7 @@ func ApprovalSignature(tool string, args json.RawMessage) string {
 	_ = json.Unmarshal(args, &a)
 	switch {
 	case a.Command != "":
-		fields := strings.Fields(a.Command)
-		if len(fields) > 2 {
-			fields = fields[:2]
-		}
-		return strings.Join(fields, " ")
+		return strings.TrimSpace(a.Command)
 	case a.Skill != "" && a.Script != "":
 		return a.Skill + "/" + a.Script
 	case a.Path != "":

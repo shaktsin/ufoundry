@@ -90,7 +90,7 @@
     <h2 class="text-sm font-semibold mb-3">App</h2>
     <div class="space-y-3 text-sm">
       <div class="flex items-center">
-        <div><div>Open ufoundry at login</div><div class="text-xs text-muted">Starts in the menu bar without a window.</div></div>
+        <div><div>Open UMCode at login</div><div class="text-xs text-muted">Starts in the menu bar without a window.</div></div>
         <input class="ml-auto" type="checkbox" checked={shell.launchAtLogin} disabled={!shell.launchAtLoginSupported || !!busy}
           onchange={(e) => action('setLaunchAtLogin', { enabled: e.currentTarget.checked })} />
       </div>
@@ -101,7 +101,7 @@
         </div>
         <button class="btn-outline btn-sm ml-auto" disabled={!!busy} onclick={() => action('installCLI')}>{shell.cliInstalled ? 'Reinstall' : 'Install'}</button>
       </div>
-      <div class="text-xs text-muted">ufoundry {shell.appVersion}</div>
+      <div class="text-xs text-muted">UMCode {shell.appVersion}</div>
     </div>
   </div>
 {:else if app.shell !== 'mac'}

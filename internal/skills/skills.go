@@ -36,7 +36,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 
-	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/umcode/internal/config"
 )
 
 var nameRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)

@@ -484,7 +484,7 @@ def _connector_env_token(connector_name: str) -> Optional[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Telegram Bot connector for UFoundry")
+    parser = argparse.ArgumentParser(description="Telegram Bot connector for UMCode")
     parser.add_argument("--config", dest="config", default=None)
     parser.add_argument("--connector", dest="connector", required=True)
     parser.add_argument("--token", dest="token", default=None)

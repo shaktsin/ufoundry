@@ -1,55 +1,28 @@
 <script lang="ts">
-  import { FolderGit2, AlertTriangle, Plus, Save, Trash2 } from '@lucide/svelte';
+  import { FolderGit2, AlertTriangle, Plus, Trash2, Pencil } from '@lucide/svelte';
   import { projects } from '$lib/stores/projects.svelte';
   import { chat } from '$lib/stores/chat.svelte';
-  import { inspector } from '$lib/stores/inspector.svelte';
   import { app } from '$lib/stores/app.svelte';
   import { dialog } from '$lib/stores/dialog.svelte';
   import ModelPicker from '$lib/components/ModelPicker.svelte';
-  import DiffView from '$lib/components/DiffView.svelte';
-  import type { FileChangeData, ModelSelection } from '$lib/types';
+  import type { ModelSelection } from '$lib/types';
+  import { createProject, editProject } from '$lib/createProject';
 
-  let instructions = $state('');
-  let dirty = $state(false);
-  let changes = $state<FileChangeData[]>([]);
   const p = $derived(projects.active);
 
-  $effect(() => {
-    void projects.activeId;
-    if (!projects.activeId) return;
-    void projects.loadInstructions();
-    void loadChanges();
-  });
-
-  $effect(() => {
-    const text = projects.instructions?.project;
-    if (text !== undefined && !dirty) instructions = text;
-  });
-
-  async function loadChanges() {
-    const r = await app.try<{ files: FileChangeData[] }>('project/diff', { projectId: projects.activeId });
-    changes = r?.files ?? [];
-  }
-
-  async function save() {
-    await projects.saveInstructions(instructions);
-    dirty = false;
-  }
-
-  async function setTool(key: 'shell' | 'network', value: boolean) {
+  async function setTool(key: 'shell' | 'network' | 'compute' | 'visualQa' | 'computerUse', value: boolean) {
     if (!p) return;
+    await projects.update(p.id, { tools: { ...p.tools, [key]: value } });
+  }
+
+  async function setComputeLimit(key: 'computeVcpus' | 'computeMemoryMiB' | 'computeDiskMiB', value: number) {
+    if (!p || !Number.isFinite(value)) return;
     await projects.update(p.id, { tools: { ...p.tools, [key]: value } });
   }
 
   async function setSettings(sel: ModelSelection) {
     if (!p) return;
     await projects.update(p.id, { settings: sel });
-  }
-
-  async function rename() {
-    if (!p) return;
-    const name = await dialog.prompt('New name for this project', { okLabel: 'Rename' });
-    if (name?.trim()) await projects.update(p.id, { name: name.trim() });
   }
 
   async function close() {
@@ -67,8 +40,12 @@
   }
 
   async function addProject() {
-    const path = await dialog.prompt('Which folder should the agent work in?', { okLabel: 'Open folder' });
-    if (path?.trim()) await projects.add(path.trim());
+    await createProject();
+    await chat.loadThreads();
+  }
+
+  async function editDetails() {
+    if (p) await editProject(p);
   }
 </script>
 
@@ -78,16 +55,16 @@
       <h1 class="page-title">Projects</h1>
       <p class="text-xs text-muted mt-1">Each project is a folder with its own chats, tools, and instructions.</p>
     </div>
-    <button class="btn-primary ml-auto" onclick={addProject}><Plus class="w-4 h-4" />Open folder</button>
+    <button class="btn-primary ml-auto" onclick={addProject}><Plus class="w-4 h-4" />New project</button>
   </div>
   {#if projects.list.length === 0}
     <div class="card p-10 text-center">
       <FolderGit2 class="w-8 h-8 mx-auto text-muted mb-3" />
       <p class="text-sm text-ink-soft">No projects yet</p>
-      <p class="text-xs text-muted mt-1">Open a folder to give the agent a safe workspace.</p>
+      <p class="text-xs text-muted mt-1">Choose a folder and name it. Chats edit this folder by default; Git projects can opt into isolated worktrees.</p>
     </div>
   {:else}
-    <div class="grid grid-cols-2 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       {#each projects.list as project (project.id)}
         <button class="card p-4 text-left hover:border-accent transition-colors" onclick={() => projects.open(project.id)}>
           <div class="flex items-center gap-2">
@@ -107,11 +84,12 @@
       {p.name.slice(0, 1).toUpperCase()}
     </div>
     <div class="min-w-0">
+      <div class="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Project settings</div>
       <h1 class="page-title truncate">{p.name}</h1>
       <p class="text-xs text-muted font-mono truncate selectable">{p.root}</p>
     </div>
-    <div class="ml-auto flex gap-2">
-      <button class="btn-ghost btn-sm" onclick={rename}>Rename</button>
+    <div class="ml-auto flex shrink-0 items-center gap-2">
+      <button class="btn-outline btn-sm" onclick={editDetails}><Pencil class="w-3.5 h-3.5" />Edit details</button>
       <button class="btn-danger btn-sm" onclick={close}><Trash2 class="w-3.5 h-3.5" />Close project</button>
     </div>
   </div>
@@ -145,20 +123,55 @@
   <section class="card p-4 mb-5">
     <h2 class="text-sm font-semibold mb-3">What the agent may do here</h2>
     <div class="space-y-3 text-sm">
-      <label class="flex items-center gap-3">
-        <input type="checkbox" checked={p.tools.shell !== false} onchange={(e) => setTool('shell', e.currentTarget.checked)} />
+      <label class="flex items-start gap-3">
+        <input class="mt-1 shrink-0" type="checkbox" checked={p.tools.shell !== false} onchange={(e) => setTool('shell', e.currentTarget.checked)} />
         <span>
           Run shell commands
           <span class="block text-xs text-muted">They run in this folder, with no API keys in their environment.</span>
         </span>
       </label>
-      <label class="flex items-center gap-3">
-        <input type="checkbox" checked={!!p.tools.network} onchange={(e) => setTool('network', e.currentTarget.checked)} />
+	  <label class="flex items-start gap-3">
+		<input class="mt-1 shrink-0" type="checkbox" checked={!!p.tools.visualQa} onchange={(e) => setTool('visualQa', e.currentTarget.checked)} />
+		<span>
+		  Enable autonomous Visual QA
+		  <span class="block text-xs text-muted">Lets the agent open this project's scoped preview in UMCode's isolated Chromium, interact with it, and capture screenshots, console errors, and failed requests. External sites and your normal browser profile are not exposed.</span>
+		</span>
+	  </label>
+	  <label class="flex items-start gap-3">
+		<input class="mt-1 shrink-0" type="checkbox" checked={!!p.tools.computerUse} onchange={(e) => setTool('computerUse', e.currentTarget.checked)} />
+		<span>
+		  Enable Computer Use
+		  <span class="block text-xs text-muted">Lets the agent open an app you select, inspect its window, and—after approval—click, type, fill forms, press keys, and scroll. macOS keeps Screen Recording and Accessibility permission on a separately signed helper.</span>
+		</span>
+	  </label>
+      <label class="flex items-start gap-3">
+        <input class="mt-1 shrink-0" type="checkbox" checked={!!p.tools.network} onchange={(e) => setTool('network', e.currentTarget.checked)} />
         <span>
-          Let commands use the network
-          <span class="block text-xs text-muted">Off by default: curl, git push, npm install and the like are refused.</span>
+          Allow shell commands to use the network
+          <span class="block text-xs text-muted">For a hard network-off boundary, enable the microVM below; host-shell commands are blocked while network is off.</span>
         </span>
       </label>
+      <label class="flex items-start gap-3">
+        <input class="mt-1 shrink-0" type="checkbox" checked={!!p.tools.compute} onchange={(e) => setTool('compute', e.currentTarget.checked)} />
+        <span>
+          Run shell in a microVM
+          <span class="block text-xs text-muted">Commands run in UMCode's bundled microVM. Only this chat's project folder or isolated worktree is mounted; the guest receives no provider credentials or host environment. Network stays off unless enabled above.</span>
+        </span>
+      </label>
+      {#if p.tools.compute}
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-7">
+          <label class="min-w-0 text-xs text-muted">vCPU (1–8)
+            <input class="input mt-1 w-full py-1" type="number" min="1" max="8" step="1" value={p.tools.computeVcpus ?? 4} onchange={(e) => setComputeLimit('computeVcpus', Number(e.currentTarget.value))} />
+          </label>
+          <label class="min-w-0 text-xs text-muted">Memory MiB (512–8192)
+            <input class="input mt-1 w-full py-1" type="number" min="512" max="8192" step="512" value={p.tools.computeMemoryMiB ?? 4096} onchange={(e) => setComputeLimit('computeMemoryMiB', Number(e.currentTarget.value))} />
+          </label>
+          <label class="min-w-0 text-xs text-muted">Workspace MiB (1024–16384)
+            <input class="input mt-1 w-full py-1" type="number" min="1024" max="16384" step="1024" value={p.tools.computeDiskMiB ?? 2048} onchange={(e) => setComputeLimit('computeDiskMiB', Number(e.currentTarget.value))} />
+          </label>
+        </div>
+        <p class="pl-7 text-[11px] text-muted">Memory and CPU are enforced by the VM. Workspace size is monitored during commands and stops the VM at the configured ceiling.</p>
+      {/if}
       <div>
         <span class="label">Default model for chats here</span>
         <ModelPicker value={p.settings} onchange={setSettings} />
@@ -166,59 +179,4 @@
     </div>
   </section>
 
-  <section class="card p-4 mb-5">
-    <div class="flex items-center mb-2">
-      <h2 class="text-sm font-semibold">Project instructions</h2>
-      <span class="ml-2 text-xs text-muted font-mono truncate">{projects.instructions?.path ?? 'AGENT.md'}</span>
-      <button class="btn-primary btn-sm ml-auto" disabled={!dirty} onclick={save}><Save class="w-3.5 h-3.5" />Save</button>
-    </div>
-    <p class="text-xs text-muted mb-2">
-      Added to the agent's prompt for every chat in this project, after your global instructions. An existing
-      <code class="font-mono">AGENTS.md</code> or <code class="font-mono">CLAUDE.md</code> is used as-is.
-    </p>
-    <textarea
-      class="input font-mono text-xs h-48"
-      bind:value={instructions}
-      oninput={() => (dirty = true)}
-      placeholder="Run the tests with `make test`. Prefer small commits. The API lives in internal/api."
-    ></textarea>
-    {#if projects.instructions?.sources?.length}
-      <div class="mt-2 text-[11px] text-faint">
-        In effect:
-        {#each projects.instructions.sources as s, i}
-          <span>{i > 0 ? ' → ' : ''}{s.scope} ({s.path.split('/').pop()})</span>
-        {/each}
-      </div>
-    {/if}
-  </section>
-
-  <section>
-    <div class="flex items-center mb-2">
-      <h2 class="text-sm font-semibold">Changes the agent has made</h2>
-      <button class="btn-ghost btn-sm ml-auto" onclick={loadChanges}>Refresh</button>
-    </div>
-    {#if changes.length === 0}
-      <p class="text-sm text-muted">Nothing changed in this project yet.</p>
-    {/if}
-    <div class="space-y-2">
-      {#each changes as c (c.path)}
-        <div class="card p-3">
-          <div class="flex items-center gap-2 text-xs mb-2">
-            <button class="font-mono text-ink hover:underline" onclick={() => inspector.openFile(c.path)}>{c.path}</button>
-            <span class="text-sage">+{c.additions}</span>
-            <span class="text-rust">−{c.deletions}</span>
-            <div class="ml-auto flex gap-2">
-              <button class="text-faint hover:text-ink" onclick={() => inspector.openDiff(c)}>open</button>
-              {#if c.turnId && c.revertable}
-                <button class="text-faint hover:text-ink" onclick={() => inspector.revertTurn(c.turnId!, [c.path]).then(loadChanges)}>
-                  undo
-                </button>
-              {/if}
-            </div>
-          </div>
-          <DiffView change={c} max={24} />
-        </div>
-      {/each}
-    </div>
-  </section>
 {/if}

@@ -138,9 +138,25 @@ func (o *OpenAI) buildRequest(req Request) map[string]any {
 			body["max_completion_tokens"] = req.MaxTokens
 		}
 	}
+	if len(req.Tools) > 0 && req.Reasoning == ReasoningOff {
+		// Quick/Auto turns explicitly disable reasoning. Omitting this field lets
+		// some reasoning models apply their default effort, which Chat Completions
+		// rejects when function tools are present.
+		body["reasoning_effort"] = "none"
+	}
 	switch req.Reasoning {
 	case ReasoningLow, ReasoningMedium, ReasoningHigh:
-		body["reasoning_effort"] = req.Reasoning
+		// Reasoning models on Chat Completions reject non-none reasoning_effort
+		// when function tools are present. Apply this to OpenAI-compatible
+		// endpoints too: proxies often forward OpenAI's validation unchanged.
+		// Keep tool use available; use the requested effort on turns without
+		// tools. The Responses API can preserve both, but this adapter currently
+		// uses Chat Completions.
+		effort := req.Reasoning
+		if len(req.Tools) > 0 {
+			effort = "none"
+		}
+		body["reasoning_effort"] = effort
 	}
 	return body
 }

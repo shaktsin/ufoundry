@@ -173,6 +173,15 @@
         }}
       />
       <ModelPicker value={view.selection} onchange={(v) => view.setSelection(v)} compact={compact} />
+      {#if !compact && projects.active && view.id === null}
+        <label class="inline-flex items-center gap-1.5 text-[11px] text-muted" title="Choose whether this chat edits the project folder or works in an isolated Git copy">
+          <span>Workspace</span>
+          <select class="select h-7 max-w-36 px-2 text-[11px]" bind:value={view.workspaceMode}>
+            <option value="local">Project folder</option>
+            {#if projects.active.vcs?.kind === 'git' && projects.active.vcs.hasCommit}<option value="worktree">Isolated worktree</option>{/if}
+          </select>
+        </label>
+      {/if}
       {#if route}
         <span class="text-[11px] text-faint truncate {compact ? 'hidden sm:inline' : ''}" title={routeTitle}>
           {routeChip}

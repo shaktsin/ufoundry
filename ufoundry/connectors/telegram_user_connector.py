@@ -353,7 +353,7 @@ def _find_connector(cfg, connector_name: str):
 def main() -> None:
     """CLI entry point for Telegram User connector."""
     parser = argparse.ArgumentParser(
-        description="Telegram User Account connector for UFoundry"
+        description="Telegram User Account connector for UMCode"
     )
     parser.add_argument("--config", dest="config", default=None)
     parser.add_argument("--connector", dest="connector", required=True, help="Connector name from config")

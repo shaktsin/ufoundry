@@ -5,10 +5,10 @@ import (
 	"math"
 	"testing"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/llm"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/store"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/llm"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/store"
 )
 
 func TestClassify(t *testing.T) {
@@ -25,9 +25,31 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestClassifyAutoContinuation(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		previous protocol.Complexity
+		project  bool
+		want     protocol.Complexity
+	}{
+		{name: "approval inherits deep task", text: "approved", previous: protocol.ComplexityDeep, project: true, want: protocol.ComplexityDeep},
+		{name: "project continuation floors quick at standard", text: "continue", previous: protocol.ComplexityQuick, project: true, want: protocol.ComplexityStandard},
+		{name: "new quick message remains quick", text: "what time is it", project: true, want: protocol.ComplexityQuick},
+		{name: "substantive message uses its own classification", text: "please continue and do research on these options", previous: protocol.ComplexityQuick, project: true, want: protocol.ComplexityDeep},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ClassifyAuto(tt.text, 0, tt.previous, tt.project); got != tt.want {
+				t.Errorf("ClassifyAuto(%q) = %s, want %s", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPresetsOverride(t *testing.T) {
-	p := Presets(config.ModelsConfig{Complexity: map[string]config.ComplexityPreset{"deep": {MaxToolSteps: 60}}})
-	if p[protocol.ComplexityDeep].MaxToolSteps != 60 || p[protocol.ComplexityDeep].Reasoning != llm.ReasoningHigh {
+	p := Presets(config.ModelsConfig{Complexity: map[string]config.ComplexityPreset{"deep": {MaxToolSteps: 5}}})
+	if p[protocol.ComplexityDeep].MaxToolSteps != 200 || p[protocol.ComplexityDeep].Reasoning != llm.ReasoningHigh {
 		t.Fatalf("override not applied: %+v", p[protocol.ComplexityDeep])
 	}
 }

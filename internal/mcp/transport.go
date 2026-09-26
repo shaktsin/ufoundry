@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/umcode/internal/config"
 )
 
 // rpcMessage is a JSON-RPC 2.0 message.

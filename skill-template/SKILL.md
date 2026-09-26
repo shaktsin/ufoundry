@@ -57,7 +57,7 @@ runtime:
 
 # Example Skill
 
-This is an example skill template for UFoundry. It demonstrates:
+This is an example skill template for UMCode. It demonstrates:
 
 - Python scripts
 - Bash scripts
@@ -72,7 +72,7 @@ This is an example skill template for UFoundry. It demonstrates:
 ufoundry skills install /path/to/this/skill
 
 # Or from GitHub
-ufoundry skills install https://github.com/yourusername/ufoundry-skill-example.git
+ufoundry skills install https://github.com/yourusername/umcode-skill-example.git
 
 # Or publish to PyPI and install
 ufoundry skills install ufoundry-skill-example

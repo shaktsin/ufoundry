@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // Tier lists a provider's models in the order the router should try them for a

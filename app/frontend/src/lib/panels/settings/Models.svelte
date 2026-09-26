@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, Plus, Save, Trash2 } from '@lucide/svelte';
+  import { ArrowDown, ArrowUp, Plus, RefreshCw, Save, Trash2 } from '@lucide/svelte';
   import { app } from '$lib/stores/app.svelte';
   import { errMsg } from '$lib/format';
   import type { ConfiguredModel, ModelHealthRow, ModelPool, RoutingConfig } from '$lib/types';
@@ -69,6 +69,39 @@
     newModel = { ...newModel, name: '', model: '' };
     changed();
   }
+
+  function configuredFor(model: { provider: string; id: string }) {
+    return draft.models.find((item) => item.provider === model.provider && item.model === model.id);
+  }
+
+  function toggleCatalogModel(model: { provider: string; id: string; displayName: string }) {
+    const configured = configuredFor(model);
+    if (configured) configured.enabled = !configured.enabled;
+    else draft.models.push({ id: idFor('model'), name: model.displayName || model.id, provider: model.provider, model: model.id, enabled: true });
+    changed();
+  }
+
+  async function refreshFrom(provider: string) {
+    const credential = app.credentials.find((item) => item.provider === provider && item.enabled && item.isDefault)
+      ?? app.credentials.find((item) => item.provider === provider && item.enabled);
+    if (!credential) {
+      app.toast('error', 'Add a key for this provider first.');
+      return;
+    }
+    try {
+      await app.call('model/refresh', { credentialId: credential.id }, 60_000);
+      await app.refreshCatalog();
+      app.toast('info', 'Provider models updated.');
+    } catch (error) {
+      app.toast('error', errMsg(error));
+    }
+  }
+
+  const catalogByProvider = $derived.by(() => {
+    const groups: Record<string, typeof app.models> = {};
+    for (const model of app.models) (groups[model.provider] ??= []).push(model);
+    return Object.entries(groups);
+  });
 
   function removeModel(id: string) {
     draft.models = draft.models.filter((m) => m.id !== id);
@@ -144,8 +177,8 @@
 
 <div class="flex items-start gap-4 mb-5">
   <div>
-    <h2 class="text-base font-semibold text-ink">Configured models</h2>
-    <p class="text-sm text-muted mt-1 max-w-2xl">Only models configured here appear in chats. Availability is checked when a model is used.</p>
+    <h2 class="text-base font-semibold text-ink">Models</h2>
+    <p class="text-sm text-muted mt-1 max-w-2xl">Choose models from your provider catalog to make them available in chats. Access is verified when you use a model.</p>
   </div>
   <button class="btn-primary ml-auto" disabled={!dirty || saving} onclick={save}>
     <Save class="w-4 h-4" />{saving ? 'Saving' : 'Save changes'}
@@ -173,50 +206,60 @@
   </div>
 {/if}
 
-<div class="card overflow-hidden mb-4">
-  {#if draft.models.length === 0}
-    <div class="p-5 text-sm text-muted">No models configured. Add the first provider and model below.</div>
-  {:else}
-    <div class="divide-y divide-line">
-      {#each draft.models as model (model.id)}
-        <div class="p-4 grid grid-cols-[minmax(9rem,1fr)_10rem_minmax(12rem,1.5fr)_auto] gap-3 items-end">
-          <label class="form-field"><span>Name</span><input class="input" bind:value={model.name} oninput={changed} /></label>
-          <label class="form-field">
-            <span>Provider</span>
-            <select class="select w-full" bind:value={model.provider} onchange={changed}>
-              {#each app.providers as provider}<option value={provider.id}>{providerNames[provider.id] ?? provider.displayName}</option>{/each}
-            </select>
-          </label>
-          <label class="form-field"><span>Model ID</span><input class="input font-mono" bind:value={model.model} oninput={changed} /></label>
-          <div class="flex items-center gap-2 h-9">
-            <label class="inline-flex items-center gap-2 text-xs text-muted whitespace-nowrap">
-              <input type="checkbox" bind:checked={model.enabled} onchange={changed} /> Enabled
+{#if catalogByProvider.length === 0}
+  <div class="card p-4 mb-5 text-sm text-muted">No provider models found yet. Add provider credentials, then refresh the provider catalog.</div>
+{:else}
+  <div class="space-y-4 mb-6">
+    {#each catalogByProvider as [provider, models] (provider)}
+      <section>
+        <div class="flex items-center gap-2 mb-2">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-muted">{providerNames[provider] ?? provider}</h3>
+          <button class="btn-ghost btn-sm ml-auto" onclick={() => refreshFrom(provider)}><RefreshCw class="w-3.5 h-3.5" />Refresh catalog</button>
+        </div>
+        <div class="card divide-y divide-line overflow-hidden">
+          {#each models as catalogModel (catalogModel.id)}
+            {@const selectedModel = configuredFor(catalogModel)}
+            <label class="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-raised/60">
+              <input type="checkbox" checked={!!selectedModel?.enabled} onchange={() => toggleCatalogModel(catalogModel)} />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm text-ink truncate">{catalogModel.displayName || catalogModel.id}</span>
+                <span class="block text-[11px] text-muted font-mono truncate">{catalogModel.id}</span>
+              </span>
+              <span class="hidden sm:block text-[11px] text-muted">{[catalogModel.supportsTools && 'tools', catalogModel.supportsImages && 'images', catalogModel.supportsReasoning && 'thinking'].filter(Boolean).join(' · ')}</span>
+              <span class="text-[11px] text-muted whitespace-nowrap" title="USD per million tokens">{catalogModel.inputPerMTok ? `$${catalogModel.inputPerMTok} in · $${catalogModel.outputPerMTok} out` : 'Pricing n/a'}</span>
+              <span class="text-xs text-muted w-24 text-right">{selectedModel?.enabled ? 'In chats' : 'Add to chats'}</span>
             </label>
-            <button class="icon-btn" title="Remove model" aria-label="Remove model" onclick={() => removeModel(model.id)}><Trash2 class="w-4 h-4" /></button>
-          </div>
+          {/each}
+        </div>
+      </section>
+    {/each}
+  </div>
+{/if}
+
+<details class="card p-4 mb-8">
+  <summary class="cursor-pointer text-sm font-medium text-ink">Add a custom model ID</summary>
+  <p class="text-xs text-muted mt-2 mb-3">For compatible providers or model IDs not listed in the catalog.</p>
+  <div class="grid grid-cols-1 md:grid-cols-[minmax(9rem,1fr)_10rem_minmax(12rem,1.5fr)_auto] gap-2.5 items-end">
+    <label class="form-field"><span>Name</span><input class="input" placeholder="My model" bind:value={newModel.name} /></label>
+    <label class="form-field"><span>Provider</span><select class="select w-full" bind:value={newModel.provider}>{#each app.providers as provider}<option value={provider.id}>{providerNames[provider.id] ?? provider.displayName}</option>{/each}</select></label>
+    <label class="form-field"><span>Model ID</span><input class="input font-mono" placeholder="Provider model ID" bind:value={newModel.model} /></label>
+    <button class="btn-outline h-9 whitespace-nowrap" onclick={addModel}><Plus class="w-4 h-4" />Add</button>
+  </div>
+  {#if draft.models.some((item) => !app.models.some((catalogModel) => catalogModel.provider === item.provider && catalogModel.id === item.model))}
+    <div class="mt-3 divide-y divide-line border-t border-line">
+      {#each draft.models.filter((item) => !app.models.some((catalogModel) => catalogModel.provider === item.provider && catalogModel.id === item.model)) as model (model.id)}
+        <div class="flex items-center gap-3 pt-3 text-sm">
+          <span class="min-w-0 flex-1 truncate">{model.name} <span class="text-muted font-mono">{model.provider}/{model.model}</span></span>
+          <label class="inline-flex items-center gap-2 text-xs text-muted"><input type="checkbox" bind:checked={model.enabled} onchange={changed} /> In chats</label>
+          <button class="icon-btn" title="Remove model" aria-label="Remove model" onclick={() => removeModel(model.id)}><Trash2 class="w-4 h-4" /></button>
         </div>
       {/each}
     </div>
   {/if}
-</div>
-
-<div class="card p-4 mb-8">
-  <h3 class="text-sm font-semibold text-ink mb-3">Add model</h3>
-  <div class="grid grid-cols-[minmax(9rem,1fr)_10rem_minmax(12rem,1.5fr)_auto] gap-3 items-end">
-    <label class="form-field"><span>Name</span><input class="input" placeholder="Daily model" bind:value={newModel.name} /></label>
-    <label class="form-field">
-      <span>Provider</span>
-      <select class="select w-full" bind:value={newModel.provider}>
-        {#each app.providers as provider}<option value={provider.id}>{providerNames[provider.id] ?? provider.displayName}</option>{/each}
-      </select>
-    </label>
-    <label class="form-field"><span>Model ID</span><input class="input font-mono" placeholder="Provider model ID" bind:value={newModel.model} /></label>
-    <button class="btn-secondary h-9" onclick={addModel}><Plus class="w-4 h-4" />Add</button>
-  </div>
-</div>
+</details>
 
 <div class="mb-4">
-  <div class="flex items-end gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_13rem] items-end gap-3">
     <div>
       <h2 class="text-base font-semibold text-ink">Model pools</h2>
       <p class="text-sm text-muted mt-1 max-w-2xl">Pools try configured models in order. Quota and rate-limit failures move to the next provider automatically.</p>
@@ -279,6 +322,6 @@
   <h3 class="text-sm font-semibold text-ink mb-3">Add pool</h3>
   <div class="flex items-end gap-3 max-w-xl">
     <label class="form-field flex-1"><span>Pool name</span><input class="input" placeholder="Coding pool" bind:value={newPoolName} /></label>
-    <button class="btn-secondary h-9" onclick={addPool}><Plus class="w-4 h-4" />Add pool</button>
+    <button class="btn-outline h-9 whitespace-nowrap shrink-0" onclick={addPool}><Plus class="w-4 h-4" />Add pool</button>
   </div>
 </div>

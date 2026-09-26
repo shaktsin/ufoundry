@@ -1,4 +1,4 @@
-// JSON-RPC 2.0 client for the UFoundry engine protocol over WebSocket.
+// JSON-RPC 2.0 client for the UMCode engine protocol over WebSocket.
 // Reconnects with backoff; re-runs the handshake (initialize + subscribe) each time.
 
 export const PROTOCOL_VERSION = '1.0.0';

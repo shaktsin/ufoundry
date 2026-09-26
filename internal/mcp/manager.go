@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/tools"
-	"github.com/shaktsin/ufoundry/internal/version"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/tools"
+	"github.com/shaktsin/umcode/internal/version"
 )
 
 // ProtocolVersion is the MCP revision the client asks for; servers may answer

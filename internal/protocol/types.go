@@ -39,15 +39,18 @@ type Thread struct {
 	Title string `json:"title"`
 	// ProjectID is the project this chat works in; empty means no project,
 	// which makes the chat read-only for file and shell tools.
-	ProjectID  string         `json:"projectId,omitempty"`
-	Channel    string         `json:"channel"`
-	Pinned     bool           `json:"pinned"`
-	Archived   bool           `json:"archived"`
-	Settings   ModelSelection `json:"settings"`
-	ForkedFrom string         `json:"forkedFrom,omitempty"`
-	Usage      UsageTotals    `json:"usage"`
-	CreatedAt  time.Time      `json:"createdAt"`
-	UpdatedAt  time.Time      `json:"updatedAt"`
+	ProjectID string `json:"projectId,omitempty"`
+	// WorkspaceMode is "local", "worktree", or the upgrade-only "legacy" value
+	// resolved by the engine when opening an older chat.
+	WorkspaceMode string         `json:"workspaceMode,omitempty"`
+	Channel       string         `json:"channel"`
+	Pinned        bool           `json:"pinned"`
+	Archived      bool           `json:"archived"`
+	Settings      ModelSelection `json:"settings"`
+	ForkedFrom    string         `json:"forkedFrom,omitempty"`
+	Usage         UsageTotals    `json:"usage"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
 }
 
 // TurnStatus values.
@@ -77,14 +80,15 @@ type Turn struct {
 
 // Item kinds.
 const (
-	ItemUserMessage  = "userMessage"
-	ItemAgentMessage = "agentMessage"
-	ItemReasoning    = "reasoning"
-	ItemToolCall     = "toolCall"
-	ItemInboundEvent = "inboundEvent"
-	ItemApproval     = "approval"
-	ItemFileChange   = "fileChange"
-	ItemError        = "error"
+	ItemUserMessage       = "userMessage"
+	ItemAgentMessage      = "agentMessage"
+	ItemReasoning         = "reasoning"
+	ItemToolCall          = "toolCall"
+	ItemInboundEvent      = "inboundEvent"
+	ItemApproval          = "approval"
+	ItemFileChange        = "fileChange"
+	ItemContextCompaction = "contextCompaction"
+	ItemError             = "error"
 )
 
 // Item statuses.
@@ -226,8 +230,16 @@ type ProviderIdentity struct {
 // ComplexityPreset is the engine translation of one complexity level.
 type ComplexityPreset struct {
 	Level           Complexity `json:"level"`
-	Reasoning       string     `json:"reasoning"` // off | low | medium | high
-	MaxToolSteps    int        `json:"maxToolSteps"`
-	MultiAgent      string     `json:"multiAgent"` // never | teamRouteOnly | allowed
+	Reasoning       string     `json:"reasoning"`    // off | low | medium | high
+	MaxToolSteps    int        `json:"maxToolSteps"` // compatibility mirror of the global round ceiling
+	MultiAgent      string     `json:"multiAgent"`   // never | teamRouteOnly | allowed
 	MaxOutputTokens int        `json:"maxOutputTokens"`
+}
+
+// ExecutionLimits bound a complete model/tool turn independently of reasoning level.
+type ExecutionLimits struct {
+	MaxDurationMinutes int     `json:"maxDurationMinutes"`
+	MaxTokens          int64   `json:"maxTokens"`
+	MaxCostUSD         float64 `json:"maxCostUsd"`
+	MaxToolRounds      int     `json:"maxToolRounds"`
 }

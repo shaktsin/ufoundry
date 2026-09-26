@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/tasks"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/tasks"
 )
 
 // ---- tasks ----

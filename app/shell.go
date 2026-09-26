@@ -18,7 +18,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // Engine status as shown in the menu bar.
@@ -117,7 +117,7 @@ func (s *Shell) buildTrayMenu() {
 	s.approvalsItem = m.Add("No pending approvals").OnClick(func(*application.Context) { s.ShowView("approvals") })
 	s.approvalsItem.SetEnabled(false)
 	m.AddSeparator()
-	m.Add("Open ufoundry").OnClick(func(*application.Context) { s.ShowWindow() })
+	m.Add("Open UMCode").OnClick(func(*application.Context) { s.ShowWindow() })
 	m.Add("New Chat").OnClick(func(*application.Context) {
 		s.ShowWindow()
 		s.runJS("window.ufoundry.newChat()")
@@ -152,9 +152,9 @@ func (s *Shell) buildTrayMenu() {
 		}()
 	})
 	m.AddSeparator()
-	m.Add("Quit ufoundry").OnClick(func(*application.Context) { s.App.Quit() })
+	m.Add("Quit UMCode").OnClick(func(*application.Context) { s.App.Quit() })
 	s.Tray.SetMenu(m)
-	s.Tray.SetTooltip("ufoundry")
+	s.Tray.SetTooltip("UMCode")
 }
 
 // SetStatus updates the engine line of the menu.
@@ -214,7 +214,7 @@ func (s *Shell) refreshTray() {
 	if pending > 0 {
 		label = fmt.Sprint(pending)
 	}
-	tooltip := "ufoundry - " + strings.TrimPrefix(line, "Engine: ")
+	tooltip := "UMCode - " + strings.TrimPrefix(line, "Engine: ")
 	application.InvokeAsync(func() {
 		s.statusItem.SetLabel(line)
 		s.approvalsItem.SetLabel(approvals)
@@ -259,7 +259,7 @@ func installCLI() error {
 	if strings.ContainsAny(bin, `"'\`) {
 		return errors.New("the app is installed at a path with quotes in it; move it to /Applications")
 	}
-	script := fmt.Sprintf(`do shell script "mkdir -p /usr/local/bin && ln -sf '%s' '%s'" with administrator privileges with prompt "ufoundry wants to install the command-line tool."`, bin, cliLink)
+	script := fmt.Sprintf(`do shell script "mkdir -p /usr/local/bin && ln -sf '%s' '%s'" with administrator privileges with prompt "UMCode wants to install the command-line tool."`, bin, cliLink)
 	out, err := exec.Command("/usr/bin/osascript", "-e", script).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -407,6 +407,19 @@ func (s *Shell) handleShellAction(w http.ResponseWriter, r *http.Request, action
 	case "restartEngine":
 		err = s.Engine.Restart(ctx)
 		msg = "Engine restarted."
+	case "chooseFolder":
+		if s.App == nil || s.Window == nil {
+			err = errors.New("folder picker is only available in the desktop app")
+			break
+		}
+		var folder string
+		folder, err = s.App.Dialog.OpenFile().CanChooseFiles(false).CanChooseDirectories(true).
+			CanCreateDirectories(true).SetTitle("Choose project folder").SetButtonText("Use folder").
+			AttachToWindow(s.Window).PromptForSingleSelection()
+		if err == nil {
+			writeJSON(w, http.StatusOK, map[string]string{"path": folder})
+			return
+		}
 	case "installService":
 		err = s.Engine.InstallService(ctx)
 		msg = "The engine now runs in the background and starts at login."

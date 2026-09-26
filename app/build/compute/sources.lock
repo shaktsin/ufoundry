@@ -1,0 +1,15 @@
+# Guest runtime inputs. Update these together only after host smoke tests.
+# Kernel/library source must ship with releases that distribute libkrunfw.
+
+libkrun_url=https://github.com/libkrun/libkrun.git
+libkrun_tag=v1.19.4
+libkrun_commit=728df8125077d0db44265f6e997c72b81b65c015
+
+libkrunfw_url=https://github.com/libkrun/libkrunfw.git
+libkrunfw_tag=v5.5.0
+libkrunfw_commit=ec4b297964877d83432f9ccda6dad8ff6e9de3e4
+
+guest_rootfs_version=3.24.0
+guest_rootfs_x86_64_sha256=de9a11c0e0e7e9c94db3ed8af7b450eafc0b13687bd7e9199d55050f20aa0a89
+guest_rootfs_aarch64_sha256=4b8cd66a6688b2a87276c39843ed89c3a06d9534fc6a5823c586aff2696c1f2a
+guest_kernel_c_bundle_aarch64_sha256=c8443a3f65e804679581fc6d34264e4a58b49fe5608cdd853e0bf7fbb74204e3

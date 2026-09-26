@@ -1,4 +1,4 @@
-"""FastAPI application factory for the UFoundry control panel."""
+"""FastAPI application factory for the UMCode control panel."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def create_app(
     broadcaster = EventBroadcaster()
 
     app = FastAPI(
-        title="UFoundry Control Panel",
+        title="UMCode Control Panel",
         version="0.1.0",
         lifespan=_lifespan,
     )
@@ -191,5 +191,5 @@ def run_panel(
 
         threading.Thread(target=_open, daemon=True).start()
 
-    logger.info("Starting UFoundry control panel on http://%s:%s", host, port)
+    logger.info("Starting UMCode control panel on http://%s:%s", host, port)
     uvicorn.run(app, host=host, port=port, log_level=(log_level or "info").lower())

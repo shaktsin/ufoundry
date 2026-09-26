@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ufoundry"
 version = "0.1.0"
-description = "UFoundry - self-hosted personal AI assistant"
+description = "UMCode - self-hosted personal AI assistant"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [
-  { name = "UFoundry Contributors" }
+  { name = "UMCode Contributors" }
 ]
 keywords = ["assistant", "bot", "ai", "telegram", "discord"]
 classifiers = [

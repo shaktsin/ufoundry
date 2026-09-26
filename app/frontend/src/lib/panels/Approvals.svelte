@@ -2,6 +2,7 @@
   import { ShieldCheck } from '@lucide/svelte';
   import { app } from '$lib/stores/app.svelte';
   import { chat } from '$lib/stores/chat.svelte';
+  import { projects } from '$lib/stores/projects.svelte';
   import { prettyJSON, relTime } from '$lib/format';
   import ApprovalCard from '$lib/components/ApprovalCard.svelte';
 </script>
@@ -24,7 +25,7 @@
       <div class="flex items-start gap-3">
         <span class="risk-{a.risk} mt-0.5">{a.risk}</span>
         <div class="flex-1 min-w-0">
-          <div class="text-sm text-ink selectable">{a.actionSummary || a.tool}</div>
+          <button class="block text-left text-sm text-ink selectable hover:text-accent-strong" title="Open this chat" onclick={() => chat.open(a.threadId)}>{a.actionSummary || a.tool}</button>
           <div class="text-xs text-muted mt-0.5">
             <code class="font-mono">{a.tool}</code>{a.reason ? ` · ${a.reason}` : ''} · {relTime(a.createdAt)}
           </div>
@@ -33,11 +34,9 @@
             <pre class="mt-1 font-mono text-[11px] text-muted bg-paper rounded p-2 whitespace-pre-wrap break-all max-h-60 overflow-auto">{prettyJSON(a.args)}</pre>
           </details>
         </div>
-        <div class="shrink-0">
-          <button class="btn-ghost btn-sm" onclick={() => chat.open(a.threadId)}>Open chat</button>
-        </div>
+        <div class="shrink-0 text-xs text-muted">Open chat ↗</div>
       </div>
-      <div class="mt-2 -mx-4 -mb-4 rounded-b-xl overflow-hidden"><ApprovalCard approval={a} /></div>
+      <div class="mt-2 -mx-4 -mb-4 rounded-b-xl overflow-hidden"><ApprovalCard approval={a} projectName={projects.list.find((project) => project.id === chat.threads.find((thread) => thread.id === a.threadId)?.projectId)?.name} /></div>
     </div>
   {/each}
 </div>

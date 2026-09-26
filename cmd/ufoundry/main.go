@@ -1,4 +1,4 @@
-// Command ufoundry is the UFoundry engine and CLI.
+// Command ufoundry is the UMCode engine and CLI.
 //
 //	ufoundry engine            run the engine in the foreground
 //	ufoundry chat "hello"      send a message (streams the reply)
@@ -25,17 +25,17 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/client"
-	"github.com/shaktsin/ufoundry/internal/config"
-	"github.com/shaktsin/ufoundry/internal/engine"
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/secrets"
-	"github.com/shaktsin/ufoundry/internal/server"
-	"github.com/shaktsin/ufoundry/internal/store"
-	"github.com/shaktsin/ufoundry/internal/version"
+	"github.com/shaktsin/umcode/internal/client"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/engine"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/secrets"
+	"github.com/shaktsin/umcode/internal/server"
+	"github.com/shaktsin/umcode/internal/store"
+	"github.com/shaktsin/umcode/internal/version"
 )
 
-const usage = `UFoundry — self-hosted personal AI assistant
+const usage = `UMCode — self-hosted personal AI assistant
 
 Usage: ufoundry [--config FILE] <command> [args]
 
@@ -149,7 +149,7 @@ func main() {
 	case "usage":
 		err = runUsage(rest)
 	case "version", "--version", "-v":
-		fmt.Printf("ufoundry %s (%s), protocol %s\n", version.Version, version.Commit, protocol.Version)
+		fmt.Printf("ufoundry %s (%s), build %s, protocol %s\n", version.Version, version.Commit, version.BuildID, protocol.Version)
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:

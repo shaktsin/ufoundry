@@ -68,7 +68,7 @@
     <h2 class="text-xs font-semibold uppercase tracking-wider text-muted">{names[prov] ?? prov}</h2>
     <button class="btn-ghost btn-sm ml-auto" onclick={() => refreshFrom(prov)}><RefreshCw class="w-3.5 h-3.5" />Fetch from provider</button>
   </div>
-  <div class="card overflow-hidden">
+  <div class="card overflow-x-auto">
     <table class="data-table">
       <thead><tr><th>Model</th><th>Capabilities</th><th class="text-right">In</th><th class="text-right">Cached</th><th class="text-right">Out</th><th></th></tr></thead>
       <tbody>

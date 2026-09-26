@@ -22,7 +22,7 @@
     <textarea
       bind:value={text}
       onkeydown={onKeydown}
-      placeholder={disabled ? 'Gateway offline…' : 'Message UFoundry…'}
+      placeholder={disabled ? 'Gateway offline…' : 'Message UMCode…'}
       {disabled}
       rows="1"
       class="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-xl px-3 py-2 text-sm

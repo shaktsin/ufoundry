@@ -36,7 +36,7 @@ NC     := \033[0m
 # ---------------------------------------------------------------------------
 
 help: ## Show this help
-	@echo "$(BLUE)UFoundry — Self-hosted AI Assistant$(NC)"
+	@echo "$(BLUE)UMCode — Self-hosted AI Assistant$(NC)"
 	@echo ""
 	@echo "$(GREEN)Config:$(NC)  $(CONFIG_FILE)"
 	@echo "$(GREEN)Venv:$(NC)    $(VENV)"
@@ -56,7 +56,7 @@ help: ## Show this help
 	@echo "  $(YELLOW)status$(NC)        Show whether daemon is running"
 	@echo "  $(YELLOW)reload$(NC)        Hot-reload config without restart"
 	@echo "  $(YELLOW)logs$(NC)          Tail the live log file"
-	@echo "  $(YELLOW)ps$(NC)            List all UFoundry processes"
+	@echo "  $(YELLOW)ps$(NC)            List all UMCode processes"
 	@echo ""
 	@echo "$(GREEN)Control Panel$(NC)"
 	@echo "  $(YELLOW)panel$(NC)         Start web control panel (installs deps, opens browser)"
@@ -107,7 +107,7 @@ $(INSTALL_STAMP): pyproject.toml
 	@touch $(INSTALL_STAMP)
 
 install: $(INSTALL_STAMP) ## Create venv and install dependencies (skips if pyproject.toml unchanged)
-	@echo "$(GREEN)✓ UFoundry installed. Run 'make init' to configure.$(NC)"
+	@echo "$(GREEN)✓ UMCode installed. Run 'make init' to configure.$(NC)"
 
 dev: ## Install with dev dependencies (pytest, black, mypy, flake8)
 	@echo "$(BLUE)Installing dev dependencies...$(NC)"
@@ -139,7 +139,7 @@ doctor: $(INSTALL_STAMP) ## Check config, connectors, and skill health
 # ---------------------------------------------------------------------------
 
 run: $(INSTALL_STAMP) ## Start in foreground; auto-starts web panel if configured (Ctrl+C to stop)
-	@echo "$(BLUE)Starting UFoundry...$(NC)"
+	@echo "$(BLUE)Starting UMCode...$(NC)"
 	@echo "$(YELLOW)Ctrl+C to stop$(NC)"
 	@( \
 		PANEL_PID=""; \
@@ -162,8 +162,8 @@ start: $(INSTALL_STAMP) ## Start as background daemon
 	@sleep 1
 	@$(MAKE) status
 
-stop: ## Stop daemon or any foreground UFoundry processes
-	@echo "$(YELLOW)Stopping UFoundry...$(NC)"
+stop: ## Stop daemon or any foreground UMCode processes
+	@echo "$(YELLOW)Stopping UMCode...$(NC)"
 	@PID_FILE="$(CONFIG_DIR)/ufoundry.pid"; \
 	if [ -f "$$PID_FILE" ]; then \
 		PID=$$(cat "$$PID_FILE" 2>/dev/null); \
@@ -193,7 +193,7 @@ stop: ## Stop daemon or any foreground UFoundry processes
 restart: stop start ## Stop then start daemon
 
 status: $(INSTALL_STAMP) ## Show whether daemon is running
-	@$(UFOUNDRY) status --config $(CONFIG_FILE) || echo "$(RED)UFoundry is not running$(NC)"
+	@$(UFOUNDRY) status --config $(CONFIG_FILE) || echo "$(RED)UMCode is not running$(NC)"
 
 reload: $(INSTALL_STAMP) ## Hot-reload config without restart
 	@echo "$(YELLOW)Reloading config...$(NC)"
@@ -202,9 +202,9 @@ reload: $(INSTALL_STAMP) ## Hot-reload config without restart
 logs: ## Tail the live log file
 	@tail -f $(CONFIG_DIR)/logs/ufoundry.log
 
-ps: ## List all UFoundry processes
+ps: ## List all UMCode processes
 	@ps aux | grep -E "ufoundry|python.*gateway|python.*connector" | grep -v grep \
-		|| echo "$(YELLOW)No UFoundry processes running$(NC)"
+		|| echo "$(YELLOW)No UMCode processes running$(NC)"
 
 # ---------------------------------------------------------------------------
 # Control Panel
@@ -269,7 +269,7 @@ db-reset: stop ## Delete database — keep config (WARNING: loses all history)
 	@echo "$(RED)WARNING: Deletes all messages, tasks, and history$(NC)"
 	@read -p "Are you sure? (yes/no): " c; [ "$$c" = "yes" ] || { echo "Cancelled"; exit 0; }
 	@rm -f $(CONFIG_DIR)/ufoundry.db $(CONFIG_DIR)/ufoundry.db-shm $(CONFIG_DIR)/ufoundry.db-wal
-	@echo "$(GREEN)✓ Database cleared — restart UFoundry to recreate$(NC)"
+	@echo "$(GREEN)✓ Database cleared — restart UMCode to recreate$(NC)"
 
 # ---------------------------------------------------------------------------
 # Development
@@ -291,7 +291,7 @@ format: ## Format code with black
 check: lint test ## Run lint + test
 
 shell: $(INSTALL_STAMP) ## Open Python REPL with ufoundry imported
-	@$(BIN)/python -i -c "from ufoundry import *; print('UFoundry loaded')"
+	@$(BIN)/python -i -c "from ufoundry import *; print('UMCode loaded')"
 
 gateway: $(INSTALL_STAMP) ## Start gateway only — no connectors (dev/debug)
 	@echo "$(BLUE)Starting gateway only...$(NC)"
@@ -339,7 +339,7 @@ publish: build ## Upload to PyPI
 # ---------------------------------------------------------------------------
 
 info: ## Show system paths and state
-	@echo "$(BLUE)UFoundry Info$(NC)"
+	@echo "$(BLUE)UMCode Info$(NC)"
 	@echo "  Python    : $(shell $(PYTHON) --version)"
 	@echo "  Venv      : $(VENV)"
 	@echo "  Config    : $(CONFIG_FILE)"
@@ -361,8 +361,8 @@ info: ## Show system paths and state
 GO         ?= go
 GO_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GO_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-GO_LDFLAGS := -s -w -X github.com/shaktsin/ufoundry/internal/version.Version=$(GO_VERSION) \
-              -X github.com/shaktsin/ufoundry/internal/version.Commit=$(GO_COMMIT)
+GO_LDFLAGS := -s -w -X github.com/shaktsin/umcode/internal/version.Version=$(GO_VERSION) \
+              -X github.com/shaktsin/umcode/internal/version.Commit=$(GO_COMMIT)
 
 go-build: ## Build the Go engine + CLI → bin/ufoundry
 	@mkdir -p bin
@@ -385,10 +385,10 @@ app-dev: go-build ## Run the Mac app's UI in a browser against a running engine
 app-check: ## Type-check and test the app's UI
 	cd app/frontend && npm install && npx svelte-check && npx vitest run
 
-app-build: ## Build UFoundry.app (macOS only) → bin/UFoundry.app
+app-build: ## Build UMCode.app (macOS only) → bin/UMCode.app
 	app/build/macos/bundle.sh
 
-app-build-universal: ## Build a universal UFoundry.app (arm64 + x86_64)
+app-build-universal: ## Build a universal UMCode.app (arm64 + x86_64)
 	app/build/macos/bundle.sh --universal
 
 go-universal: ## Build a universal (arm64 + x86_64) macOS binary → bin/ufoundry-darwin

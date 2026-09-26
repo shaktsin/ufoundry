@@ -1,21 +1,13 @@
 <script lang="ts">
-  import { X, FileText, GitCompare, Terminal, Undo2, RefreshCw } from '@lucide/svelte';
+  import { X, FileText, GitCompare, Terminal, Undo2, RefreshCw, Monitor, Square, FlaskConical, Image } from '@lucide/svelte';
   import { inspector } from '$lib/stores/inspector.svelte';
-  import { chat } from '$lib/stores/chat.svelte';
   import DiffView from './DiffView.svelte';
+  import { highlightSource } from '$lib/highlight';
 
   const tab = $derived(inspector.active);
 
-  const icon = { file: FileText, diff: GitCompare, output: Terminal } as const;
+  const icon = { file: FileText, diff: GitCompare, output: Terminal, preview: Monitor, browser: FlaskConical, artifact: Image } as const;
 
-  async function askAboutThis() {
-    if (!tab) return;
-    const snippet =
-      tab.kind === 'diff'
-        ? `${tab.path} (${tab.change?.additions} added, ${tab.change?.deletions} removed)\n\n${(tab.change?.diff ?? '').slice(0, 2000)}`
-        : `${tab.path ?? tab.title}\n\n${(tab.content ?? tab.text ?? '').slice(0, 2000)}`;
-    await chat.startSide(snippet);
-  }
 </script>
 
 <div class="h-full flex flex-col bg-surface/40">
@@ -48,11 +40,21 @@
           </button>
         {/if}
         {#if tab.kind === 'file' && tab.path}
-          <button class="btn-ghost btn-sm" aria-label="Reload" onclick={() => inspector.openFile(tab.path!)}>
+          <button class="btn-ghost btn-sm" aria-label="Reload" onclick={() => inspector.openFile(tab.path!, tab.threadId, tab.projectId)}>
             <RefreshCw class="w-3.5 h-3.5" />
           </button>
         {/if}
-        <button class="btn-ghost btn-sm" onclick={askAboutThis}>Ask about this</button>
+        {#if tab.kind === 'preview' && tab.preview}
+          <span class="text-[10px] {tab.preview.status === 'ready' ? 'text-sage' : 'text-muted'}">{tab.preview.status}</span>
+          {#if tab.preview.status === 'ready'}
+            <button class="btn-ghost btn-sm" aria-label="Reload preview" onclick={() => inspector.reloadPreview(tab.id)}>
+              <RefreshCw class="w-3.5 h-3.5" />
+            </button>
+            <button class="btn-ghost btn-sm" onclick={() => inspector.stopPreview(tab.preview!.id)}>
+              <Square class="w-3.5 h-3.5" />Stop preview
+            </button>
+          {/if}
+        {/if}
       </div>
     </div>
 
@@ -73,9 +75,57 @@
         {#if tab.binary}
           <p class="p-4 text-sm text-muted">This file is not text, so there is nothing to show here.</p>
         {:else}
-          <pre class="p-3 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap selectable">{tab.content}</pre>
+          <pre class="code-view p-3 font-mono text-[11px] leading-[1.6] whitespace-pre selectable"><code>{@html highlightSource(tab.content ?? '', tab.path ?? '')}</code></pre>
           {#if tab.truncated}<p class="px-3 pb-3 text-[11px] text-muted">… only the first part of this file is shown.</p>{/if}
         {/if}
+      {:else if tab.kind === 'preview' && tab.preview}
+        {#if tab.preview.status === 'ready'}
+          <iframe
+            title={tab.preview.title}
+            src={`${tab.preview.url}${tab.preview.url.includes('?') ? '&' : '?'}umcode_reload=${tab.reload ?? 0}`}
+            class="w-full h-full border-0 bg-white"
+            sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+          ></iframe>
+        {:else}
+          <div class="p-4 space-y-3">
+            <p class="text-sm text-muted">The preview server has stopped.</p>
+            {#if tab.text}<pre class="font-mono text-[11px] leading-[1.5] whitespace-pre-wrap selectable">{tab.text}</pre>{/if}
+          </div>
+        {/if}
+      {:else if tab.kind === 'browser' && tab.browser}
+        <div class="p-4 space-y-4 text-xs">
+          <div class="flex items-center gap-2">
+            <span class="rounded-full px-2 py-0.5 bg-raised {tab.browser.status === 'passed' ? 'text-sage' : tab.browser.status === 'not_run' ? 'text-muted' : 'text-rust'}">{tab.browser.status.replace('_', ' ')}</span>
+            {#if tab.browser.framework}<span class="text-muted">{tab.browser.framework}</span>{/if}
+            {#if tab.browser.duration_ms}<span class="text-faint">{tab.browser.duration_ms} ms</span>{/if}
+          </div>
+          {#if tab.browser.command}<pre class="rounded-md bg-raised p-2 font-mono whitespace-pre-wrap selectable">$ {tab.browser.command}</pre>{/if}
+          {#if tab.browser.reason}<p class="text-muted">{tab.browser.reason}</p>{/if}
+		  {#if tab.browser.snapshot}<details open><summary class="cursor-pointer text-muted">Rendered page state</summary><pre class="mt-2 rounded-md bg-raised p-2 font-mono whitespace-pre-wrap selectable max-h-80 overflow-auto">{tab.browser.snapshot}</pre></details>{/if}
+          {#if tab.browser.diagnostics?.length}
+            <section>
+              <h3 class="font-medium mb-1">Console and request diagnostics</h3>
+              <pre class="rounded-md bg-rust-soft text-rust p-2 whitespace-pre-wrap selectable">{tab.browser.diagnostics.join('\n')}</pre>
+            </section>
+          {/if}
+          <section>
+            <h3 class="font-medium mb-1">Artifacts ({tab.browser.artifacts?.length ?? 0})</h3>
+            {#if tab.browser.artifacts?.length}
+              <div class="space-y-1">
+                {#each tab.browser.artifacts as artifact}
+                  <button class="w-full flex items-center gap-2 rounded-md px-2 py-1.5 bg-raised hover:bg-line text-left" onclick={() => inspector.openArtifact(artifact, tab.threadId, tab.projectId)}>
+                    <span class="text-clay">{artifact.kind}</span><span class="font-mono truncate">{artifact.path}</span><span class="ml-auto text-faint">{artifact.bytes} B</span>
+                  </button>
+                {/each}
+              </div>
+            {:else}<p class="text-muted">No screenshots, traces, reports, or videos were produced.</p>{/if}
+          </section>
+          {#if tab.browser.output}<details><summary class="cursor-pointer text-muted">Command output</summary><pre class="mt-2 font-mono whitespace-pre-wrap selectable">{tab.browser.output}</pre></details>{/if}
+        </div>
+      {:else if tab.kind === 'artifact' && tab.artifact}
+        {#if tab.dataUrl}
+          <div class="h-full p-3 flex items-center justify-center bg-raised"><img src={tab.dataUrl} alt={tab.artifact.path} class="max-w-full max-h-full object-contain" /></div>
+        {:else}<p class="p-4 text-sm text-muted">Artifact metadata is available, but this format has no inline viewer.</p>{/if}
       {:else}
         <pre class="p-3 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap selectable">{tab.text}</pre>
       {/if}

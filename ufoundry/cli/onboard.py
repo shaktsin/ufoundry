@@ -1,4 +1,4 @@
-"""Interactive onboarding wizard for UFoundry."""
+"""Interactive onboarding wizard for UMCode."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def run_wizard(
     if is_update:
         console.print(
             Panel.fit(
-                "[bold cyan]UFoundry Setup[/bold cyan]\n"
+                "[bold cyan]UMCode Setup[/bold cyan]\n"
                 f"Updating existing configuration at [dim]{config_file}[/dim]",
                 border_style="cyan",
             )
@@ -61,7 +61,7 @@ def run_wizard(
     else:
         console.print(
             Panel.fit(
-                "[bold cyan]UFoundry Onboarding Wizard[/bold cyan]\n"
+                "[bold cyan]UMCode Onboarding Wizard[/bold cyan]\n"
                 "Let's set up your personal AI assistant",
                 border_style="cyan",
             )
@@ -1144,6 +1144,6 @@ def _install_system_daemon(config_file: Path) -> None:
     """Install systemd/launchd service (placeholder)."""
     console.print(
         "\n[yellow]Daemon installation not implemented yet.[/yellow]\n"
-        "To run UFoundry on system startup, configure systemd (Linux) or launchd (macOS) manually.\n"
+        "To run UMCode on system startup, configure systemd (Linux) or launchd (macOS) manually.\n"
         "See README for examples."
     )

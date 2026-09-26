@@ -1,4 +1,4 @@
-module github.com/shaktsin/ufoundry
+module github.com/shaktsin/umcode
 
 go 1.24.0
 

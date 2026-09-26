@@ -14,7 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/config"
+	"github.com/shaktsin/umcode/internal/client"
+	"github.com/shaktsin/umcode/internal/config"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // Engine run modes, as shown in Settings → Engine & app.
@@ -109,7 +111,7 @@ func (m *EngineManager) setMode(mode, detail string) {
 //
 // In the bundle it lives in Contents/Resources, not beside the app binary:
 // the Mac's file system ignores case, so Contents/MacOS/ufoundry would be the
-// same file as Contents/MacOS/UFoundry.
+// same file as Contents/MacOS/UMCode.
 func EngineBinary() (string, error) {
 	if p := os.Getenv("UFOUNDRY_ENGINE_BIN"); p != "" {
 		return p, nil
@@ -159,6 +161,15 @@ func (m *EngineManager) Ensure(ctx context.Context) error {
 	defer m.ensureMu.Unlock()
 	if m.Reachable() {
 		if st := serviceStatus(); st == serviceEnabled {
+			if BuildID != "" {
+				engine, err := m.engineStatus(ctx)
+				if err == nil && engine.BuildID != BuildID {
+					if err := m.refreshRegisteredService(ctx, engine); err != nil {
+						m.setMode(ModeService, err.Error())
+						return err
+					}
+				}
+			}
 			m.setMode(ModeService, "")
 		} else {
 			m.setMode(ModeExternal, "")
@@ -190,6 +201,62 @@ func (m *EngineManager) Ensure(ctx context.Context) error {
 		}
 	}
 	return m.startChild(ctx)
+}
+
+func (m *EngineManager) engineStatus(ctx context.Context) (protocol.EngineStatus, error) {
+	ep, err := loadEndpoints()
+	if err != nil {
+		return protocol.EngineStatus{}, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	c, err := client.Dial(cctx, ep.Socket, "ufoundry-app", false)
+	if err != nil {
+		return protocol.EngineStatus{}, err
+	}
+	defer c.Close()
+	var status protocol.EngineStatus
+	if err := c.Call(cctx, protocol.MethodEngineStatus, nil, &status); err != nil {
+		return protocol.EngineStatus{}, err
+	}
+	return status, nil
+}
+
+// refreshRegisteredService replaces a stale bundled engine with the binary in
+// the app bundle that was just launched. SMAppService keeps the original bundle
+// executable registered across app updates, so reachability alone is not enough.
+func (m *EngineManager) refreshRegisteredService(ctx context.Context, old protocol.EngineStatus) error {
+	if old.ActiveTurns > 0 || old.PendingApprovals > 0 {
+		return fmt.Errorf("the background engine is an older build and has active work; let it finish, then relaunch this app to update it")
+	}
+	if err := unregisterService(); err != nil {
+		return fmt.Errorf("unregister the older background engine: %w", err)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for m.Reachable() && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if m.Reachable() {
+		return errors.New("the older background engine did not stop; quit UMCode and try again")
+	}
+	if err := registerService(); err != nil {
+		return fmt.Errorf("register the engine from this app build: %w", err)
+	}
+	if !m.waitReachable(ctx, 15*time.Second) {
+		return errors.New("the updated background engine did not start; check macOS Login Items settings")
+	}
+	updated, err := m.engineStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("check the updated background engine: %w", err)
+	}
+	if updated.BuildID != BuildID {
+		return fmt.Errorf("the background engine is still an older build (%s); quit UMCode and relaunch this app bundle", updated.BuildID)
+	}
+	return nil
 }
 
 func (m *EngineManager) waitReachable(ctx context.Context, d time.Duration) bool {

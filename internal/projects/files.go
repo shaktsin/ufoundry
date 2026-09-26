@@ -2,6 +2,7 @@ package projects
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 // skipDirs are never walked or listed: noise that would bury the tree.
@@ -141,6 +142,31 @@ func (s *Service) ReadFile(ctx context.Context, p protocol.Project, params proto
 	return res, nil
 }
 
+// ReadArtifact returns a bounded browser screenshot using an explicit image
+// allowlist. Reports and traces remain listed by path and are never executed.
+func (s *Service) ReadArtifact(ctx context.Context, p protocol.Project, params protocol.ProjectReadArtifactParams) (protocol.ProjectReadArtifactResult, error) {
+	abs, err := Resolve(p.Root, params.Path)
+	if err != nil {
+		return protocol.ProjectReadArtifactResult{}, err
+	}
+	mime := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}[strings.ToLower(filepath.Ext(abs))]
+	if mime == "" {
+		return protocol.ProjectReadArtifactResult{}, fmt.Errorf("%s is not a supported screenshot", params.Path)
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return protocol.ProjectReadArtifactResult{}, err
+	}
+	if st.IsDir() || st.Size() > 8<<20 {
+		return protocol.ProjectReadArtifactResult{}, fmt.Errorf("screenshot must be a file no larger than 8 MiB")
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return protocol.ProjectReadArtifactResult{}, err
+	}
+	return protocol.ProjectReadArtifactResult{Path: Rel(p.Root, abs), MimeType: mime, DataB64: base64.StdEncoding.EncodeToString(data), Bytes: st.Size()}, nil
+}
+
 // gitInfo reads the branch, remote and dirty count of a checkout. It returns
 // nil when the folder is not a git repository or git is unavailable.
 func gitInfo(root string) *protocol.VCSInfo {
@@ -162,7 +188,8 @@ func gitInfo(root string) *protocol.VCSInfo {
 		}
 		return strings.TrimSpace(string(out))
 	}
-	v := &protocol.VCSInfo{Kind: "git", Branch: run("rev-parse", "--abbrev-ref", "HEAD"), Remote: run("remote", "get-url", "origin")}
+	v := &protocol.VCSInfo{Kind: "git", HasCommit: run("rev-parse", "--verify", "HEAD^{commit}") != "",
+		Branch: run("rev-parse", "--abbrev-ref", "HEAD"), Remote: run("remote", "get-url", "origin")}
 	if status := run("status", "--porcelain"); status != "" {
 		v.Dirty = len(strings.Split(status, "\n"))
 	}

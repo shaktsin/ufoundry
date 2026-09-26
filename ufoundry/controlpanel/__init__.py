@@ -1,4 +1,4 @@
-"""Local web control panel for UFoundry admin interface.
+"""Local web control panel for UMCode admin interface.
 
 FastAPI and uvicorn are optional dependencies. Install with:
     pip install 'ufoundry[panel]'

@@ -11,7 +11,7 @@ import (
 	"time"
 	_ "time/tzdata" // IANA zones even where the system has none
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
 var weekdays = map[string]time.Weekday{

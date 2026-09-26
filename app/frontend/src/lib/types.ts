@@ -22,12 +22,19 @@ export interface UsageTotals {
 export interface ProjectTools {
   shell?: boolean;
   network?: boolean;
+  compute?: boolean;
+	visualQa?: boolean;
+	computerUse?: boolean;
+  computeVcpus?: number;
+  computeMemoryMiB?: number;
+  computeDiskMiB?: number;
   git?: boolean;
   mcpServers?: string[];
 }
 
 export interface VCSInfo {
   kind: string;
+  hasCommit: boolean;
   branch?: string;
   dirty: number;
   remote?: string;
@@ -46,20 +53,6 @@ export interface Project {
   threads: number;
   createdAt: string;
   lastOpenedAt: string;
-}
-
-export interface InstructionSource {
-  scope: 'global' | 'project' | 'nested';
-  path: string;
-  bytes: number;
-  error?: string;
-}
-
-export interface ProjectInstructions {
-  composed: string;
-  project: string;
-  path: string;
-  sources: InstructionSource[];
 }
 
 export interface FileEntry {
@@ -105,10 +98,16 @@ export interface RevertResult {
   reason?: string;
 }
 
+export interface TaskWorkspaceResult {
+  changedFiles?: number;
+  message: string;
+}
+
 export interface Thread {
   id: string;
   title: string;
   projectId?: string;
+  workspaceMode: 'local' | 'worktree';
   channel: string;
   pinned: boolean;
   archived: boolean;
@@ -217,6 +216,7 @@ export type ItemKind =
   | 'fileChange'
   | 'inboundEvent'
   | 'approval'
+  | 'contextCompaction'
   | 'error';
 export type ItemStatus = 'inProgress' | 'completed' | 'failed' | 'denied';
 
@@ -328,6 +328,14 @@ export interface ComplexityPreset {
 export interface ComplexityDefaults {
   default: Complexity;
   presets: ComplexityPreset[];
+  limits: ExecutionLimits;
+}
+
+export interface ExecutionLimits {
+  maxDurationMinutes: number;
+  maxTokens: number;
+  maxCostUsd: number;
+  maxToolRounds: number;
 }
 
 export interface EngineStatus {
@@ -338,6 +346,51 @@ export interface EngineStatus {
   activeTurns: number;
   pendingApprovals: number;
   dbPath: string;
+}
+
+export interface PreviewSession {
+  id: string;
+  threadId: string;
+  projectId: string;
+  title: string;
+  url: string;
+  status: 'starting' | 'ready' | 'stopped';
+  output?: string;
+}
+
+export interface PreviewEvent {
+  preview: PreviewSession;
+  output?: string;
+  error?: string;
+}
+
+export interface BrowserArtifact {
+  path: string;
+  kind: string;
+  mime_type?: string;
+  bytes: number;
+}
+
+export interface BrowserVerificationResult {
+  status: 'passed' | 'failed' | 'blocked' | 'not_run';
+  framework?: string;
+  command?: string;
+  directory?: string;
+  duration_ms?: number;
+  exit_code?: number;
+  output?: string;
+  diagnostics: string[];
+  artifacts: BrowserArtifact[];
+  reason?: string;
+	session_id?: string;
+	snapshot?: string;
+}
+
+export interface ProjectArtifactContent {
+  path: string;
+  mimeType: string;
+  dataB64: string;
+  bytes: number;
 }
 
 export interface SearchHit {

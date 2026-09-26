@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   The engine, registered as a login-item agent with SMAppService. It lives in
-  UFoundry.app/Contents/Library/LaunchAgents, so launchd runs the binary from
+  UMCode.app/Contents/Library/LaunchAgents, so launchd runs the binary from
   inside the bundle and the app can register and unregister it at runtime.
 -->
 <plist version="1.0">

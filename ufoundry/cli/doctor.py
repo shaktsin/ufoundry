@@ -27,7 +27,7 @@ def run_diagnostics(config_path: Optional[str] = None) -> None:
     - File system permissions
     - Daemon status
     """
-    console.print("\n[bold cyan]UFoundry System Diagnostics[/bold cyan]\n")
+    console.print("\n[bold cyan]UMCode System Diagnostics[/bold cyan]\n")
 
     results = []
 

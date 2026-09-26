@@ -1,10 +1,11 @@
-# UFoundry
+# UMCode
 
 A local-first AI workbench for project-scoped chats and software work.
 
-Choose a project folder and UFoundry keeps its chats and project instructions together. Start a clean chat or a contextual side chat, choose configured provider/model IDs, or combine models into an ordered pool. When a provider reports a quota or rate limit, the engine can continue with the next configured model. Tool actions stay visible, with approvals for sensitive operations.
+Choose a project folder and UMCode keeps its chats and project instructions together. Start a clean chat or a contextual side chat, choose configured provider/model IDs, or combine models into an ordered pool. When a provider reports a quota or rate limit, the engine can continue with the next configured model. Tool actions stay visible, with approvals for sensitive operations.
 
-![UFoundry desktop app](media/ufoundry-screenshot.png)
+![Demo](media/umcode-demo.gif)
+![UMCode desktop app](media/umcode-screenshot.png)
 
 ---
 
@@ -16,15 +17,15 @@ Choose a project folder and UFoundry keeps its chats and project instructions to
 
 ---
 
-For the current Go engine and desktop app build instructions, see [GO_ENGINE.md](GO_ENGINE.md). The remaining Python setup and connector documentation below describes the legacy assistant.
+For the current Go engine and desktop app build instructions, see [GO_ENGINE.md](GO_ENGINE.md). The rest of this README covers the legacy Python assistant.
 
 ## Legacy Python app quick start
 
 **Requirements:** Python 3.11+, a Telegram bot token (from [@BotFather](https://t.me/BotFather)), and an API key for Claude, OpenAI, or Gemini.
 
 ```bash
-git clone https://github.com/shaktsin/ufoundry
-cd ufoundry
+git clone https://github.com/shaktsin/umcode
+cd umcode
 make install     # create venv, install deps
 make init        # interactive setup wizard
 make run         # start in foreground (Ctrl+C to stop)
@@ -120,7 +121,7 @@ control_panels:
 
 ## Configuration
 
-Config lives at `~/.ufoundry/config.yaml`. The easiest way to generate it is `make init`.
+The Python runtime keeps its configuration in UMCode's per-user configuration directory. The easiest way to generate it is `make init`.
 
 To see a fully-annotated example of every option:
 
@@ -142,12 +143,7 @@ cat config.example.yaml
 | `security` | Role-based tool access, SSRF protection |
 | `policy` | Approval strictness + declarative ACL rules (`rules` / `rules_file`) |
 
-**Secrets** are never stored in `config.yaml`. They're kept in macOS Keychain (automatic) or read from environment variables:
-
-```bash
-export UFOUNDRY_LLM_API_KEY="sk-..."
-export UFOUNDRY_CONNECTOR_MY_BOT_TOKEN="123:ABC..."
-```
+**Secrets** are never stored in `config.yaml`. They're kept in macOS Keychain (automatic) or read from the supported environment variables for your installation.
 
 ---
 
@@ -158,7 +154,7 @@ Skills are packaged capabilities — a folder with a `SKILL.md` manifest and scr
 **Install a skill:**
 ```bash
 make skill-add SKILL=./path/to/skill-folder
-make skill-add SKILL=https://github.com/someone/ufoundry-skill-github
+make skill-add SKILL=https://github.com/<owner>/<skill-repository>
 ```
 
 **List loaded skills:**
@@ -168,7 +164,7 @@ make skills
 
 **Add a skill directory** (all sub-folders with `SKILL.md` are loaded):
 ```yaml
-# ~/.ufoundry/config.yaml
+# UMCode configuration
 skill_dirs:
   - ~/projects/skills/skills
 ```
@@ -191,7 +187,7 @@ Skills run in isolated subprocesses with their own virtualenv. They can only use
 
 ## Security
 
-UFoundry has a layered security model so you stay in control of what the bot does.
+UMCode has a layered security model so you stay in control of what the bot does.
 
 ### Tool risk tiers
 
@@ -229,7 +225,7 @@ Agents only operate inside configured workspace directories. Each workspace has 
 tools:
   workspaces:
     - name: builds
-      path: ~/ufoundry-workspace
+      path: ~/umcode-workspace
       acl:
         read: true
         write: true
@@ -248,7 +244,7 @@ For connector-agnostic inbound/outbound policy, use `policy.rules` (inline) or
 
 ```yaml
 policy:
-  rules_file: ~/.ufoundry/policies/default.yaml
+  rules_file: ~/umcode-policies/default.yaml
   rules:
     - id: gmail-search-explicit-admin
       priority: 20

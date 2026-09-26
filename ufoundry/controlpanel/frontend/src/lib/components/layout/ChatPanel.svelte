@@ -58,7 +58,7 @@
           </svg>
         </div>
         <p class="text-sm text-zinc-400">Start a conversation</p>
-        <p class="text-xs text-zinc-600 mt-1">Send a message to UFoundry</p>
+        <p class="text-xs text-zinc-600 mt-1">Send a message to UMCode</p>
       </div>
     {:else}
       {#each chatStore.messages as msg (msg.id ?? msg.created_at ?? msg.content + msg.role)}

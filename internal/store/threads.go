@@ -9,16 +9,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
+	"github.com/shaktsin/umcode/internal/protocol"
 )
 
-const threadCols = `id, title, project_id, channel, pinned, archived, provider, model, complexity, credential_id, forked_from, created_at, updated_at`
+const threadCols = `id, title, project_id, workspace_mode, channel, pinned, archived, provider, model, complexity, credential_id, forked_from, created_at, updated_at`
 
 func scanThread(sc interface{ Scan(...any) error }) (protocol.Thread, error) {
 	var t protocol.Thread
 	var pinned, archived int
 	var complexity, created, updated string
-	err := sc.Scan(&t.ID, &t.Title, &t.ProjectID, &t.Channel, &pinned, &archived,
+	err := sc.Scan(&t.ID, &t.Title, &t.ProjectID, &t.WorkspaceMode, &t.Channel, &pinned, &archived,
 		&t.Settings.Provider, &t.Settings.Model, &complexity, &t.Settings.CredentialID,
 		&t.ForkedFrom, &created, &updated)
 	if err != nil {
@@ -38,10 +38,13 @@ func (s *Store) CreateThread(ctx context.Context, t protocol.Thread) (protocol.T
 	if t.Channel == "" {
 		t.Channel = "app"
 	}
+	if t.WorkspaceMode == "" {
+		t.WorkspaceMode = "local"
+	}
 	now := time.Now().UTC()
 	t.CreatedAt, t.UpdatedAt = now, now
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO threads (`+threadCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.Title, t.ProjectID, t.Channel, b2i(t.Pinned), b2i(t.Archived),
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO threads (`+threadCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.Title, t.ProjectID, t.WorkspaceMode, t.Channel, b2i(t.Pinned), b2i(t.Archived),
 		t.Settings.Provider, t.Settings.Model, string(t.Settings.Complexity), t.Settings.CredentialID,
 		t.ForkedFrom, FormatTime(now), FormatTime(now))
 	return t, err
@@ -131,7 +134,7 @@ func (s *Store) ListThreads(ctx context.Context, p protocol.ThreadListParams) ([
 // UpdateThread applies a mutation to selected columns.
 func (s *Store) UpdateThread(ctx context.Context, id string, cols map[string]any) error {
 	allowed := map[string]bool{"title": true, "pinned": true, "archived": true, "provider": true,
-		"model": true, "complexity": true, "credential_id": true}
+		"model": true, "complexity": true, "credential_id": true, "workspace_mode": true}
 	var sets []string
 	var args []any
 	for k, v := range cols {

@@ -1,3 +1,3 @@
-"""Modern CLI for UFoundry."""
+"""Modern CLI for UMCode."""
 
 __all__ = []

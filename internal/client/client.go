@@ -1,4 +1,4 @@
-// Package client is a Go client for the UFoundry engine protocol over the
+// Package client is a Go client for the UMCode engine protocol over the
 // Unix socket. The CLI uses it; so can tests and other Go programs.
 package client
 
@@ -13,8 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/shaktsin/ufoundry/internal/protocol"
-	"github.com/shaktsin/ufoundry/internal/version"
+	"github.com/shaktsin/umcode/internal/protocol"
+	"github.com/shaktsin/umcode/internal/version"
 )
 
 // Notification is an engine → client notification.

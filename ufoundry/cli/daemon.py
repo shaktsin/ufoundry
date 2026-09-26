@@ -29,7 +29,7 @@ def _is_process_running(pid: int) -> bool:
 
 
 def start_daemon(config_path: Optional[str], log_level: Optional[str]) -> None:
-    """Start UFoundry daemon in background."""
+    """Start UMCode daemon in background."""
     cfg, resolved_path = load_config(config_path=config_path)
     pid_file = Path(cfg.runtime.pid_file)
 
@@ -66,7 +66,7 @@ def start_daemon(config_path: Optional[str], log_level: Optional[str]) -> None:
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     pid_file.write_text(str(proc.pid))
 
-    console.print(f"[green]✓ UFoundry daemon started (PID: {proc.pid})[/green]")
+    console.print(f"[green]✓ UMCode daemon started (PID: {proc.pid})[/green]")
     console.print(f"  Logs: {log_file}")
 
     # Auto-start web control panel if configured
@@ -114,7 +114,7 @@ def _start_panel(cfg, config_path: str, log_dir: Path, log_level: Optional[str])
 
 
 def stop_daemon(config_path: Optional[str]) -> None:
-    """Stop UFoundry daemon."""
+    """Stop UMCode daemon."""
     cfg, _ = load_config(config_path=config_path)
     pid_file = Path(cfg.runtime.pid_file)
 

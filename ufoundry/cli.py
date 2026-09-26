@@ -37,8 +37,8 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("init", help="Run configuration wizard")
-    subparsers.add_parser("start", help="Start UFoundry daemon")
-    subparsers.add_parser("stop", help="Stop UFoundry daemon")
+    subparsers.add_parser("start", help="Start UMCode daemon")
+    subparsers.add_parser("stop", help="Stop UMCode daemon")
     subparsers.add_parser("status", help="Show daemon status")
     subparsers.add_parser("reload", help="Reload daemon configuration")
     orchestrate_parser = subparsers.add_parser("orchestrate", help="Run gateway + connectors together")
@@ -121,7 +121,7 @@ def _start_daemon(config_path: Optional[str], overrides: list[str], log_level: O
     pid_file.parent.mkdir(parents=True, exist_ok=True)
 
     if _pid_running(pid_file):
-        print("UFoundry is already running")
+        print("UMCode is already running")
         return
 
     log_dir = Path(config.runtime.log_dir)
@@ -146,7 +146,7 @@ def _start_daemon(config_path: Optional[str], overrides: list[str], log_level: O
             start_new_session=True,
         )
     pid_file.write_text(str(proc.pid))
-    print(f"UFoundry started (PID {proc.pid})")
+    print(f"UMCode started (PID {proc.pid})")
 
 
 def _stop_daemon(config_path: Optional[str], overrides: list[str]) -> None:
@@ -155,13 +155,13 @@ def _stop_daemon(config_path: Optional[str], overrides: list[str]) -> None:
     pid_file = Path(config.runtime.pid_file)
     pid = _read_pid(pid_file)
     if not pid:
-        print("UFoundry is not running")
+        print("UMCode is not running")
         return
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         pid_file.unlink(missing_ok=True)
-        print("UFoundry was not running")
+        print("UMCode was not running")
         return
     _wait_for_exit(pid, pid_file)
 
@@ -172,9 +172,9 @@ def _status_daemon(config_path: Optional[str], overrides: list[str]) -> None:
     pid_file = Path(config.runtime.pid_file)
     pid = _read_pid(pid_file)
     if pid and _is_running(pid):
-        print(f"UFoundry is running (PID {pid})")
+        print(f"UMCode is running (PID {pid})")
         return
-    print("UFoundry is not running")
+    print("UMCode is not running")
 
 
 def _reload_daemon(config_path: Optional[str], overrides: list[str]) -> None:
@@ -183,13 +183,13 @@ def _reload_daemon(config_path: Optional[str], overrides: list[str]) -> None:
     pid_file = Path(config.runtime.pid_file)
     pid = _read_pid(pid_file)
     if not pid:
-        print("UFoundry is not running")
+        print("UMCode is not running")
         return
     try:
         os.kill(pid, signal.SIGHUP)
     except ProcessLookupError:
         pid_file.unlink(missing_ok=True)
-        print("UFoundry is not running")
+        print("UMCode is not running")
         return
     print("Reload signal sent")
 
@@ -228,10 +228,10 @@ def _wait_for_exit(pid: int, pid_file: Path) -> None:
     for _ in range(20):
         if not _is_running(pid):
             pid_file.unlink(missing_ok=True)
-            print("UFoundry stopped")
+            print("UMCode stopped")
             return
         time.sleep(0.5)
-    print("UFoundry stop requested, but process is still running")
+    print("UMCode stop requested, but process is still running")
 
 
 def _handle_control_panel(args) -> None:

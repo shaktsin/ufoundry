@@ -38,7 +38,7 @@ func (keychain) Set(key, value string) error {
 	}
 	cmd := exec.Command("/usr/bin/security", "-i")
 	cmd.Stdin = strings.NewReader(fmt.Sprintf(
-		"add-generic-password -U -s \"%s\" -a \"%s\" -l \"UFoundry: %s\" -w \"%s\"\n",
+		"add-generic-password -U -s \"%s\" -a \"%s\" -l \"UMCode: %s\" -w \"%s\"\n",
 		Service, key, key, value))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

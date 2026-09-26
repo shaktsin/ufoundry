@@ -8,17 +8,26 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shaktsin/ufoundry/internal/pathutil"
+	"github.com/shaktsin/umcode/internal/pathutil"
 )
 
 // Scope is the project a turn is working in. It travels on the context, so
 // every tool — built-in, skill or MCP — sees the same boundary.
 type Scope struct {
-	ProjectID   string
-	ProjectName string
-	Root        string
-	AllowShell  bool
-	AllowNet    bool
+	ThreadID         string
+	ProjectID        string
+	ProjectName      string
+	Root             string
+	AllowShell       bool
+	AllowNet         bool
+	UseCompute       bool
+	AllowVisualQA    bool
+	AllowComputerUse bool
+	ComputeVCPUs     int
+	ComputeMemoryMiB int
+	ComputeDiskMiB   int
+	// Progress streams command output while a tool is running.
+	Progress func(output string)
 	// Record is called after a successful write with the file's previous
 	// content (nil when it did not exist) or deleted=true.
 	Record func(ctx context.Context, abs string, before *string, deleted bool)
