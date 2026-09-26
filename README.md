@@ -20,7 +20,7 @@ Tell it to manage your calendar, run scripts, browse the web, or handle anything
 
 ---
 
-> **Go engine (preview).** UMCode is moving to a single Go binary plus a native macOS app. The new engine already handles chat history, provider/model/complexity selection, API keys in the Keychain, token usage per key, and first-party web search/page reading: `make go-build && ./bin/ufoundry engine`. See [GO_ENGINE.md](GO_ENGINE.md). The Python app below remains the full-featured version during the migration.
+> **Go engine (preview).** UMCode is moving to a single Go engine plus a native macOS app. The engine handles chat history, provider/model/complexity selection, API keys in the Keychain, token usage per key, and first-party web search/page reading. Build it with `make go-build` and start it with `make go-engine`. See [GO_ENGINE.md](GO_ENGINE.md). The Python app below remains available during the migration.
 
 ## Quick Start
 
@@ -124,7 +124,7 @@ control_panels:
 
 ## Configuration
 
-Config lives at `~/.ufoundry/config.yaml`. The easiest way to generate it is `make init`.
+The Python runtime keeps its configuration in UMCode's per-user configuration directory. The easiest way to generate it is `make init`.
 
 To see a fully-annotated example of every option:
 
@@ -146,12 +146,7 @@ cat config.example.yaml
 | `security` | Role-based tool access, SSRF protection |
 | `policy` | Approval strictness + declarative ACL rules (`rules` / `rules_file`) |
 
-**Secrets** are never stored in `config.yaml`. They're kept in macOS Keychain (automatic) or read from environment variables:
-
-```bash
-export UFOUNDRY_LLM_API_KEY="sk-..."
-export UFOUNDRY_CONNECTOR_MY_BOT_TOKEN="123:ABC..."
-```
+**Secrets** are never stored in `config.yaml`. They're kept in macOS Keychain (automatic) or read from the supported environment variables for your installation.
 
 ---
 
@@ -162,7 +157,7 @@ Skills are packaged capabilities — a folder with a `SKILL.md` manifest and scr
 **Install a skill:**
 ```bash
 make skill-add SKILL=./path/to/skill-folder
-make skill-add SKILL=https://github.com/someone/ufoundry-skill-github
+make skill-add SKILL=https://github.com/<owner>/<skill-repository>
 ```
 
 **List loaded skills:**
@@ -172,7 +167,7 @@ make skills
 
 **Add a skill directory** (all sub-folders with `SKILL.md` are loaded):
 ```yaml
-# ~/.ufoundry/config.yaml
+# UMCode configuration
 skill_dirs:
   - ~/projects/skills/skills
 ```
@@ -233,7 +228,7 @@ Agents only operate inside configured workspace directories. Each workspace has 
 tools:
   workspaces:
     - name: builds
-      path: ~/ufoundry-workspace
+      path: ~/umcode-workspace
       acl:
         read: true
         write: true
@@ -252,7 +247,7 @@ For connector-agnostic inbound/outbound policy, use `policy.rules` (inline) or
 
 ```yaml
 policy:
-  rules_file: ~/.ufoundry/policies/default.yaml
+  rules_file: ~/umcode-policies/default.yaml
   rules:
     - id: gmail-search-explicit-admin
       priority: 20
