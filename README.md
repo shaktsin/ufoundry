@@ -1,28 +1,25 @@
 # UMCode
 
-A modular, multi-agent AI assistant with pluggable skills, mcps and multi-channel support.
+A local-first AI workbench for project-scoped chats and software work.
 
-Tell it to manage your calendar, run scripts, browse the web, or handle anything you'd otherwise do manually. It asks for your approval before doing anything risky, and you can extend it with skills.
+Choose a project folder and UMCode keeps its chats and project instructions together. Start a clean chat or a contextual side chat, choose configured provider/model IDs, or combine models into an ordered pool. When a provider reports a quota or rate limit, the engine can continue with the next configured model. Tool actions stay visible, with approvals for sensitive operations.
 
 ![Demo](media/umcode-demo.gif)
+![UMCode desktop app](media/umcode-screenshot.png)
 
 ---
 
-## What it does
-
-- **Answers and acts** — backed by Claude, OpenAI, or Gemini; can call tools, run shell commands, and use external APIs
-- **Talks to you where you are** — Telegram bot, Telegram user account, Discord, or local web panel
-- **Watches your inbox** — Gmail IMAP connector reads new emails, summarises them, and drafts replies for you to approve
-- **Asks before acting** — dangerous operations (shell commands, file deletes) require your explicit approval via your control panel
-- **Skills** — extend the bot with packaged capabilities (web browsing, GitHub, finance, etc.) without changing core code
-- **Scheduled tasks** — ask it to do things on a schedule: "summarize my inbox every morning at 9am"
-- **Multi-agent** — complex tasks are broken into sub-agents that work in parallel and report back
+- **Project-aware chats** — work in a selected folder with its `AGENTS.md` or `CLAUDE.md` instructions
+- **Provider and model choice** — use configured models directly or create ordered pools across providers
+- **Quota-aware routing** — move to the next model in a pool when a provider reports a retryable quota or rate-limit failure
+- **Local controls** — keep chat history, model settings, engine status, and approval workflows in one desktop app
+- **Protected credentials** — provider API keys are stored in the macOS Keychain
 
 ---
 
-> **Go engine (preview).** UMCode is moving to a single Go engine plus a native macOS app. The engine handles chat history, provider/model/complexity selection, API keys in the Keychain, token usage per key, and first-party web search/page reading. Build it with `make go-build` and start it with `make go-engine`. See [GO_ENGINE.md](GO_ENGINE.md). The Python app below remains available during the migration.
+For the current Go engine and desktop app build instructions, see [GO_ENGINE.md](GO_ENGINE.md). The rest of this README covers the legacy Python assistant.
 
-## Quick Start
+## Legacy Python app quick start
 
 **Requirements:** Python 3.11+, a Telegram bot token (from [@BotFather](https://t.me/BotFather)), and an API key for Claude, OpenAI, or Gemini.
 
